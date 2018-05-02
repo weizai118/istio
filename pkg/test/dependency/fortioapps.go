@@ -16,27 +16,27 @@ package dependency
 
 import "istio.io/istio/pkg/test/internal"
 
-// Fortio indicates a dependency on Fortio.
-var Fortio Dependency = &fortio{}
+// FortioApp indicates a dependency on FortioApps.
+var FortioApps Dependency = &fortioapps{}
 
-type fortio struct {
+type fortioapps struct {
 }
 
-var _ Dependency = &fortio{}
-var _ internal.Stateful = &fortio{}
+var _ Dependency = &fortioapps{}
+var _ internal.Stateful = &fortioapps{}
 
-func (a *fortio) String() string {
+func (f *fortioapps) String() string {
 	return ""
 }
 
-func (a *fortio) Initialize() (interface{}, error) {
+func (f *fortioapps) Initialize() (interface{}, error) {
 	return nil, nil
 }
 
-func (a *fortio) Reset(interface{}) error {
+func (f *fortioapps) Reset(interface{}) error {
 	return nil
 }
 
-func (a *fortio) Cleanup(interface{}) {
+func (f *fortioapps) Cleanup(interface{}) {
 
 }

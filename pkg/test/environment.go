@@ -32,7 +32,6 @@ type Environment interface {
 	Configure(config string)
 	GetMixer() DeployedMixer
 	GetPilot() DeployedPilot
-	GetFortio() DeployedFortio
 
 	// GetAPIServer returns the deployed k8s API server
 	GetAPIServer() DeployedAPIServer
@@ -96,25 +95,15 @@ type DeployedPilot interface {
 	Deployed
 }
 
-// DeployedFortio represents a deployed Fortio instance.
-type DeployedFortio interface {
-	Deployed
-	GetURL() string
-}
-
 type DeployedFortioApp interface {
 	Deployed
-	CallFortio(cmd string) (AppFortioCallResponse, error)
+	CallFortio(arg string, path sting) (AppFortioCallResponse, error)
 }
 
 // AppFortioCallResponse provides details about the result of a fortio call
 type AppFortioCallResponse struct {
-	// Body is the body of the response
-	Body string
-	// Code is the response code
-	ResponseCode []string
-	// Host is the host returned by the response
-	Host []string
+	// The raw content of the response
+	Raw string
 }
 
 // SpyAdapter represents a remote Spy Adapter for Mixer.
