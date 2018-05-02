@@ -11,13 +11,13 @@ var cfg = ""
 // Reimplement TestSvc2Svc in a_simple-1_test.go
 func TestSvcLoading(t *testing.T) {
 	// This Requires statement should ensure that all elements are in runnig states
-	test.Requires(t, denpendency.Apps, dependency.Fortio, dependency.Pilot)
+	test.Requires(t, denpendency.FortioApps, dependency.Fortio, dependency.Pilot)
 
 	env := test.GetEnvironment(t)
 	env.Configure(cfg)
 	fortioServer := env.GetFortio()
 	serverURL := fortioServer.GetURL() + "/echo"
-	apps := env.GetApp("echosrv")
+	apps := env.GetFortioApp("echosrv")
 
 	cmd := "load -qps 0 -t 10s " + serverURL
 	// Test Loading

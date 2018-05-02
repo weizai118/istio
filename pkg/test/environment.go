@@ -38,7 +38,8 @@ type Environment interface {
 	GetAPIServer() DeployedAPIServer
 	// GetIstioComponent gets the deployed configuration for all Istio components of the given kind.
 	GetIstioComponent(k DeployedServiceKind) []DeployedIstioComponent
-	GetApp(name string) []DeployedApp
+	GetApp(name string) DeployedApp
+	GetFortioApp(name string) DeployedFortioApp
 }
 
 // Deployed represents a deployed component
@@ -51,7 +52,6 @@ type DeployedApp interface {
 	Endpoints() []DeployedAppEndpoint
 	EndpointsForProtocol(protocol model.Protocol) []DeployedAppEndpoint
 	Call(url string, count int, headers http.Header) (AppCallResult, error)
-	CallFortio(url string) (AppFortioCallResponse, error)
 }
 
 // DeployedAppEndpoint represents a single endpoint in a DeployedApp.
@@ -100,6 +100,11 @@ type DeployedPilot interface {
 type DeployedFortio interface {
 	Deployed
 	GetURL() string
+}
+
+type DeployedFortioApp interface {
+	Deployed
+	CallFortio(cmd string) (AppFortioCallResponse, error)
 }
 
 // AppFortioCallResponse provides details about the result of a fortio call
