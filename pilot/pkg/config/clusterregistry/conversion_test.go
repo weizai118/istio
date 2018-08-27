@@ -92,53 +92,39 @@ func TestGetPilotClusters(t *testing.T) {
 		{
 			testName: "3 out of 3 Pilot in the store",
 			cs: &ClusterStore{
-				clusters: []*k8s_cr.Cluster{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "fakePilot2",
+				rc: map[string]*RemoteCluster{
+					"cluster1": {
+						Cluster: &k8s_cr.Cluster{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "fakePilot1",
+							},
 						},
+						Client: &clientcmdapi.Config{},
 					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "fakePilot3",
+					"cluster2": {
+						Cluster: &k8s_cr.Cluster{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "fakePilot2",
+							},
 						},
+						Client: &clientcmdapi.Config{},
 					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "fakePilot4",
+					"cluster3": {
+						Cluster: &k8s_cr.Cluster{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "fakePilot3",
+							},
 						},
-					},
-				},
-				clientConfigs: map[string]clientcmdapi.Config{"fakePilot": {}},
-			},
-			numberOfPilots: 3,
-		},
-		{
-			testName: "3 out of 3 Pilot in the store",
-			cs: &ClusterStore{
-				clusters: []*k8s_cr.Cluster{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "fakePilot2",
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "fakePilot3",
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "fakePilot4",
-						},
+						Client: &clientcmdapi.Config{},
 					},
 				},
 			},
 			numberOfPilots: 3,
 		},
 	}
+
 	for _, test := range tests {
-		numberOfPilots := len(test.cs.GetPilotClusters())
+		numberOfPilots := len(test.cs.rc)
 		if numberOfPilots != test.numberOfPilots {
 			t.Errorf("Test '%s' failed, expected: %d number of Pilots, got: %d ", test.testName,
 				test.numberOfPilots, numberOfPilots)

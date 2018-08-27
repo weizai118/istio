@@ -21,17 +21,17 @@ import (
 	"testing"
 	"time"
 
-	rpc "github.com/gogo/googleapis/google/rpc"
+	"github.com/gogo/googleapis/google/rpc"
 
 	tpb "istio.io/api/mixer/adapter/model/v1beta1"
 	"istio.io/istio/mixer/pkg/adapter"
 	"istio.io/istio/mixer/pkg/attribute"
 	"istio.io/istio/mixer/pkg/lang/compiled"
 	"istio.io/istio/mixer/pkg/pool"
+	"istio.io/istio/mixer/pkg/runtime/config"
 	"istio.io/istio/mixer/pkg/runtime/handler"
 	"istio.io/istio/mixer/pkg/runtime/routing"
 	"istio.io/istio/mixer/pkg/runtime/testing/data"
-	"istio.io/istio/mixer/pkg/runtime/testing/util"
 	"istio.io/istio/pkg/log"
 )
 
@@ -62,9 +62,9 @@ var tests = []struct {
 	// Attributes to expect in the response bag
 	responseAttrs map[string]interface{}
 
-	expectedQuotaResult *adapter.QuotaResult
+	expectedQuotaResult adapter.QuotaResult
 
-	expectedCheckResult *adapter.CheckResult
+	expectedCheckResult adapter.CheckResult
 
 	// expected error, if specified
 	err string
@@ -83,7 +83,7 @@ var tests = []struct {
 			data.RuleCheck1,
 		},
 		variety:             tpb.TEMPLATE_VARIETY_CHECK,
-		expectedCheckResult: &adapter.CheckResult{},
+		expectedCheckResult: adapter.CheckResult{ValidDuration: 123 * time.Second, ValidUseCount: 123},
 		log: `
 [tcheck] InstanceBuilderFn() => name: 'tcheck', bag: '---
 ident                         : dest.istio-system
@@ -91,7 +91,7 @@ ident                         : dest.istio-system
 [tcheck] InstanceBuilderFn() <= (SUCCESS)
 [tcheck] DispatchCheck => context exists: 'true'
 [tcheck] DispatchCheck => handler exists: 'true'
-[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},}'
+[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tcheck] DispatchCheck <= (SUCCESS)
 `,
 	},
@@ -120,7 +120,7 @@ ident                         : dest.istio-system
 [tcheck] InstanceBuilderFn() <= (SUCCESS)
 [tcheck] DispatchCheck => context exists: 'true'
 [tcheck] DispatchCheck => handler exists: 'true'
-[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},}'
+[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tcheck] DispatchCheck <= (ERROR)
 `,
 	},
@@ -141,7 +141,7 @@ ident                         : dest.istio-system
 			data.RuleCheck1WithInstance1And2,
 		},
 		variety: tpb.TEMPLATE_VARIETY_CHECK,
-		expectedCheckResult: &adapter.CheckResult{
+		expectedCheckResult: adapter.CheckResult{
 			ValidUseCount: 10,
 			ValidDuration: time.Millisecond,
 		},
@@ -152,7 +152,7 @@ ident                         : dest.istio-system
 [tcheck] InstanceBuilderFn() <= (SUCCESS)
 [tcheck] DispatchCheck => context exists: 'true'
 [tcheck] DispatchCheck => handler exists: 'true'
-[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},}'
+[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tcheck] DispatchCheck <= (SUCCESS)
 [tcheck] InstanceBuilderFn() => name: 'tcheck', bag: '---
 ident                         : dest.istio-system
@@ -160,7 +160,7 @@ ident                         : dest.istio-system
 [tcheck] InstanceBuilderFn() <= (SUCCESS)
 [tcheck] DispatchCheck => context exists: 'true'
 [tcheck] DispatchCheck => handler exists: 'true'
-[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},}'
+[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tcheck] DispatchCheck <= (SUCCESS)
 `,
 	},
@@ -196,7 +196,7 @@ ident                         : dest.istio-system
 			data.RuleCheck1WithInstance1And2,
 		},
 		variety: tpb.TEMPLATE_VARIETY_CHECK,
-		expectedCheckResult: &adapter.CheckResult{
+		expectedCheckResult: adapter.CheckResult{
 			Status: rpc.Status{
 				Code:    int32(rpc.DATA_LOSS),
 				Message: "hcheck1.acheck.istio-system:data loss details, hcheck1.acheck.istio-system:deadline exceeded details",
@@ -211,7 +211,7 @@ ident                         : dest.istio-system
 [tcheck] InstanceBuilderFn() <= (SUCCESS)
 [tcheck] DispatchCheck => context exists: 'true'
 [tcheck] DispatchCheck => handler exists: 'true'
-[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},}'
+[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tcheck] DispatchCheck <= (SUCCESS)
 [tcheck] InstanceBuilderFn() => name: 'tcheck', bag: '---
 ident                         : dest.istio-system
@@ -219,7 +219,7 @@ ident                         : dest.istio-system
 [tcheck] InstanceBuilderFn() <= (SUCCESS)
 [tcheck] DispatchCheck => context exists: 'true'
 [tcheck] DispatchCheck => handler exists: 'true'
-[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},}'
+[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tcheck] DispatchCheck <= (SUCCESS)
 `,
 	},
@@ -236,7 +236,8 @@ ident                         : dest.istio-system
 			"attr.string": "bar",
 			"ident":       "dest.istio-system",
 		},
-		expectedCheckResult: &adapter.CheckResult{},
+		expectedCheckResult: adapter.CheckResult{ValidDuration: 123 * time.Second, ValidUseCount: 123},
+		// nolint
 		log: `
 [tcheck] InstanceBuilderFn() => name: 'tcheck', bag: '---
 attr.string                   : bar
@@ -245,7 +246,7 @@ ident                         : dest.istio-system
 [tcheck] InstanceBuilderFn() <= (SUCCESS)
 [tcheck] DispatchCheck => context exists: 'true'
 [tcheck] DispatchCheck => handler exists: 'true'
-[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{foo: &Value{Kind:&Value_StringValue{StringValue:bar,},},},}'
+[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{foo: &Value{Kind:&Value_StringValue{StringValue:bar,},XXX_unrecognized:[],},},XXX_unrecognized:[],}'
 [tcheck] DispatchCheck <= (SUCCESS)
 `,
 	},
@@ -265,7 +266,7 @@ ident                         : dest.istio-system
 [treport] InstanceBuilderFn() <= (SUCCESS)
 [treport] DispatchReport => context exists: 'true'
 [treport] DispatchReport => handler exists: 'true'
-[treport] DispatchReport => instances: '[&Struct{Fields:map[string]*Value{},}]'
+[treport] DispatchReport => instances: '[&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}]'
 [treport] DispatchReport <= (SUCCESS)
 `,
 	},
@@ -294,7 +295,7 @@ ident                         : dest.istio-system
 [treport] InstanceBuilderFn() <= (SUCCESS)
 [treport] DispatchReport => context exists: 'true'
 [treport] DispatchReport => handler exists: 'true'
-[treport] DispatchReport => instances: '[&Struct{Fields:map[string]*Value{},}]'
+[treport] DispatchReport => instances: '[&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}]'
 [treport] DispatchReport <= (ERROR)
 `,
 	},
@@ -311,6 +312,7 @@ ident                         : dest.istio-system
 			"attr.string": "bar",
 			"ident":       "dest.istio-system",
 		},
+		// nolint
 		log: `
 [treport] InstanceBuilderFn() => name: 'treport', bag: '---
 attr.string                   : bar
@@ -319,7 +321,7 @@ ident                         : dest.istio-system
 [treport] InstanceBuilderFn() <= (SUCCESS)
 [treport] DispatchReport => context exists: 'true'
 [treport] DispatchReport => handler exists: 'true'
-[treport] DispatchReport => instances: '[&Struct{Fields:map[string]*Value{foo: &Value{Kind:&Value_StringValue{StringValue:bar,},},},}]'
+[treport] DispatchReport => instances: '[&Struct{Fields:map[string]*Value{foo: &Value{Kind:&Value_StringValue{StringValue:bar,},XXX_unrecognized:[],},},XXX_unrecognized:[],}]'
 [treport] DispatchReport <= (SUCCESS)
 
 `,
@@ -334,11 +336,11 @@ ident                         : dest.istio-system
 		},
 		variety: tpb.TEMPLATE_VARIETY_QUOTA,
 		qma: &QuotaMethodArgs{
+			Quota:           "iquota1",
 			BestEffort:      true,
 			DeduplicationID: "42",
 			Amount:          64,
 		},
-		expectedQuotaResult: &adapter.QuotaResult{},
 		log: `
 [tquota] InstanceBuilderFn() => name: 'tquota', bag: '---
 ident                         : dest.istio-system
@@ -346,7 +348,7 @@ ident                         : dest.istio-system
 [tquota] InstanceBuilderFn() <= (SUCCESS)
 [tquota] DispatchQuota => context exists: 'true'
 [tquota] DispatchQuota => handler exists: 'true'
-[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},}' qArgs:{dedup:'42', amount:'64', best:'true'}
+[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}' qArgs:{dedup:'42', amount:'64', best:'true'}
 [tquota] DispatchQuota <= (SUCCESS)
 `,
 	},
@@ -374,9 +376,53 @@ ident                         : dest.istio-system
 [tquota] InstanceBuilderFn() <= (SUCCESS)
 [tquota] DispatchQuota => context exists: 'true'
 [tquota] DispatchQuota => handler exists: 'true'
-[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},}' qArgs:{dedup:'', amount:'0', best:'true'}
+[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}' qArgs:{dedup:'', amount:'0', best:'true'}
 [tquota] DispatchQuota <= (ERROR)
 `,
+	},
+
+	{
+		name: "QuotaRequestUnknownQuota",
+		config: []string{
+			data.HandlerAQuota1,
+			data.InstanceQuota1,
+			data.RuleQuota1,
+		},
+		variety: tpb.TEMPLATE_VARIETY_QUOTA,
+		qma: &QuotaMethodArgs{
+			Quota:           "XXX",
+			BestEffort:      true,
+			DeduplicationID: "42",
+			Amount:          10697,
+		},
+		expectedQuotaResult: adapter.QuotaResult{
+			Amount:        10697,
+			ValidDuration: time.Minute,
+		},
+	},
+
+	{
+		name: "QuotaRequestConditionalUnmatchedQuota",
+		config: []string{
+			data.HandlerAQuota1,
+			data.InstanceQuota1WithSpec,
+			data.RuleQuota1Conditional,
+		},
+		variety: tpb.TEMPLATE_VARIETY_QUOTA,
+		qma: &QuotaMethodArgs{
+			Quota:           "iquota1",
+			BestEffort:      true,
+			DeduplicationID: "42",
+			Amount:          10697,
+		},
+		attr: map[string]interface{}{
+			"attr.string": "XXX",
+			"ident":       "dest.istio-system",
+		},
+		expectedQuotaResult: adapter.QuotaResult{
+			Amount:        10697,
+			ValidDuration: time.Minute,
+		},
 	},
 
 	{
@@ -402,7 +448,7 @@ ident                         : dest.istio-system
 			data.RuleQuota2,
 		},
 		variety: tpb.TEMPLATE_VARIETY_QUOTA,
-		expectedQuotaResult: &adapter.QuotaResult{
+		expectedQuotaResult: adapter.QuotaResult{
 			Amount:        55,
 			ValidDuration: time.Second,
 		},
@@ -413,15 +459,7 @@ ident                         : dest.istio-system
 [tquota] InstanceBuilderFn() <= (SUCCESS)
 [tquota] DispatchQuota => context exists: 'true'
 [tquota] DispatchQuota => handler exists: 'true'
-[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},}' qArgs:{dedup:'', amount:'0', best:'true'}
-[tquota] DispatchQuota <= (SUCCESS)
-[tquota] InstanceBuilderFn() => name: 'tquota', bag: '---
-ident                         : dest.istio-system
-'
-[tquota] InstanceBuilderFn() <= (SUCCESS)
-[tquota] DispatchQuota => context exists: 'true'
-[tquota] DispatchQuota => handler exists: 'true'
-[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},}' qArgs:{dedup:'', amount:'0', best:'true'}
+[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}' qArgs:{dedup:'', amount:'0', best:'true'}
 [tquota] DispatchQuota <= (SUCCESS)
 `,
 	},
@@ -457,15 +495,16 @@ ident                         : dest.istio-system
 			data.RuleQuota2,
 		},
 		qma: &QuotaMethodArgs{
+			Quota:           "iquota1",
 			DeduplicationID: "dedup-id",
 			BestEffort:      true,
 			Amount:          42,
 		},
 		variety: tpb.TEMPLATE_VARIETY_QUOTA,
-		expectedQuotaResult: &adapter.QuotaResult{
+		expectedQuotaResult: adapter.QuotaResult{
 			Status: rpc.Status{
 				Code:    int32(rpc.CANCELLED),
-				Message: "hquota1.aquota.istio-system:cancelled details, hquota1.aquota.istio-system:aborted details",
+				Message: "hquota1.aquota.istio-system:cancelled details",
 			},
 			Amount:        55,
 			ValidDuration: time.Second,
@@ -477,15 +516,7 @@ ident                         : dest.istio-system
 [tquota] InstanceBuilderFn() <= (SUCCESS)
 [tquota] DispatchQuota => context exists: 'true'
 [tquota] DispatchQuota => handler exists: 'true'
-[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},}' qArgs:{dedup:'dedup-id', amount:'42', best:'true'}
-[tquota] DispatchQuota <= (SUCCESS)
-[tquota] InstanceBuilderFn() => name: 'tquota', bag: '---
-ident                         : dest.istio-system
-'
-[tquota] InstanceBuilderFn() <= (SUCCESS)
-[tquota] DispatchQuota => context exists: 'true'
-[tquota] DispatchQuota => handler exists: 'true'
-[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},}' qArgs:{dedup:'dedup-id', amount:'42', best:'true'}
+[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}' qArgs:{dedup:'dedup-id', amount:'42', best:'true'}
 [tquota] DispatchQuota <= (SUCCESS)
 `,
 	},
@@ -503,11 +534,12 @@ ident                         : dest.istio-system
 			"ident":       "dest.istio-system",
 		},
 		qma: &QuotaMethodArgs{
+			Quota:           "iquota1",
 			BestEffort:      true,
 			DeduplicationID: "42",
 			Amount:          64,
 		},
-		expectedQuotaResult: &adapter.QuotaResult{},
+		// nolint
 		log: `
 [tquota] InstanceBuilderFn() => name: 'tquota', bag: '---
 attr.string                   : bar
@@ -516,7 +548,7 @@ ident                         : dest.istio-system
 [tquota] InstanceBuilderFn() <= (SUCCESS)
 [tquota] DispatchQuota => context exists: 'true'
 [tquota] DispatchQuota => handler exists: 'true'
-[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{foo: &Value{Kind:&Value_StringValue{StringValue:bar,},},},}' ` +
+[tquota] DispatchQuota => instance: '&Struct{Fields:map[string]*Value{foo: &Value{Kind:&Value_StringValue{StringValue:bar,},XXX_unrecognized:[],},},XXX_unrecognized:[],}' ` +
 			`qArgs:{dedup:'42', amount:'64', best:'true'}
 [tquota] DispatchQuota <= (SUCCESS)
 			`,
@@ -535,7 +567,7 @@ ident                         : dest.istio-system
 ident                         : dest.istio-system
 '
 [tapa] InstanceBuilderFn() <= (SUCCESS)
-[tapa] DispatchGenAttrs => instance: '&Struct{Fields:map[string]*Value{},}'
+[tapa] DispatchGenAttrs => instance: '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tapa] DispatchGenAttrs => attrs:    '---
 ident                         : dest.istio-system
 '
@@ -566,7 +598,7 @@ ident                         : dest.istio-system
 ident                         : dest.istio-system
 '
 [tapa] InstanceBuilderFn() <= (SUCCESS)
-[tapa] DispatchGenAttrs => instance: '&Struct{Fields:map[string]*Value{},}'
+[tapa] DispatchGenAttrs => instance: '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tapa] DispatchGenAttrs => attrs:    '---
 ident                         : dest.istio-system
 '
@@ -596,13 +628,14 @@ ident                         : dest.istio-system
 		responseAttrs: map[string]interface{}{
 			"prefix.generated.string": "boz",
 		},
+		// nolint
 		log: `
 [tapa] InstanceBuilderFn() => name: 'tapa', bag: '---
 attr.string                   : bar
 ident                         : dest.istio-system
 '
 [tapa] InstanceBuilderFn() <= (SUCCESS)
-[tapa] DispatchGenAttrs => instance: '&Struct{Fields:map[string]*Value{foo: &Value{Kind:&Value_StringValue{StringValue:bar,},},},}'
+[tapa] DispatchGenAttrs => instance: '&Struct{Fields:map[string]*Value{foo: &Value{Kind:&Value_StringValue{StringValue:bar,},XXX_unrecognized:[],},},XXX_unrecognized:[],}'
 [tapa] DispatchGenAttrs => attrs:    '---
 attr.string                   : bar
 ident                         : dest.istio-system
@@ -610,20 +643,6 @@ ident                         : dest.istio-system
 [tapa] DispatchGenAttrs => mapper(exists):   'true'
 [tapa] DispatchGenAttrs <= (SUCCESS)
 `,
-	},
-
-	{
-		name: "ErrorExtractingIdentityAttribute",
-		config: []string{
-			data.HandlerACheck1,
-			data.InstanceCheck1,
-			data.RuleCheck1,
-		},
-		attr: map[string]interface{}{
-			"ident": 23,
-		},
-		variety: tpb.TEMPLATE_VARIETY_CHECK,
-		err:     "identity parameter is not a string: 'ident'",
 	},
 
 	{
@@ -637,8 +656,9 @@ ident                         : dest.istio-system
 			"ident":            "dest.istio-system",
 			"destination.name": "barf", // "foo*" is expected
 		},
-		variety: tpb.TEMPLATE_VARIETY_CHECK,
-		log:     ``, // log should be empty
+		variety:             tpb.TEMPLATE_VARIETY_CHECK,
+		expectedCheckResult: adapter.CheckResult{ValidDuration: defaultValidDuration, ValidUseCount: defaultValidUseCount},
+		log:                 ``, // log should be empty
 	},
 
 	{
@@ -652,6 +672,7 @@ ident                         : dest.istio-system
 			Name: "tcheck", ErrorAtCreateInstance: true,
 		}},
 		variety: tpb.TEMPLATE_VARIETY_CHECK,
+		err:     "error at create instance",
 		log: `
 [tcheck] InstanceBuilderFn() => name: 'tcheck', bag: '---
 ident                         : dest.istio-system
@@ -683,7 +704,7 @@ ident                         : dest.istio-system
 [tcheck] InstanceBuilderFn() <= (SUCCESS)
 [tcheck] DispatchCheck => context exists: 'true'
 [tcheck] DispatchCheck => handler exists: 'true'
-[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},}'
+[tcheck] DispatchCheck => instance:       '&Struct{Fields:map[string]*Value{},XXX_unrecognized:[],}'
 [tcheck] DispatchCheck <= (PANIC)
 `,
 	},
@@ -698,15 +719,15 @@ func TestDispatcher(t *testing.T) {
 	for _, tst := range tests {
 		t.Run(tst.name, func(tt *testing.T) {
 
-			dispatcher := New("ident", gp, true)
+			dispatcher := New(gp, true)
 
 			l := &data.Logger{}
 
 			templates := data.BuildTemplates(l, tst.templates...)
 			adapters := data.BuildAdapters(l, tst.adapters...)
-			config := data.JoinConfigs(tst.config...)
+			cfg := data.JoinConfigs(tst.config...)
 
-			s := util.GetSnapshot(templates, adapters, data.ServiceConfig, config)
+			s, _ := config.GetSnapshotForTest(templates, adapters, data.ServiceConfig, cfg)
 			h := handler.NewTable(handler.Empty(), s, pool.NewGoroutinePool(1, false))
 
 			expb := compiled.NewBuilder(s.Attributes)
@@ -724,16 +745,17 @@ func TestDispatcher(t *testing.T) {
 					"ident": "dest.istio-system",
 				}
 			}
-			bag := attribute.GetFakeMutableBagForTesting(attr)
+			bag := attribute.GetMutableBagForTesting(attr)
 
-			responseBag := attribute.GetFakeMutableBagForTesting(make(map[string]interface{}))
+			responseBag := attribute.GetMutableBagForTesting(make(map[string]interface{}))
 
 			var err error
 			switch tst.variety {
 			case tpb.TEMPLATE_VARIETY_CHECK:
 				cres, e := dispatcher.Check(context.TODO(), bag)
+
 				if e == nil {
-					if !reflect.DeepEqual(cres, tst.expectedCheckResult) {
+					if !reflect.DeepEqual(&cres, &tst.expectedCheckResult) {
 						tt.Fatalf("check result mismatch: '%v' != '%v'", cres, tst.expectedCheckResult)
 					}
 				} else {
@@ -741,16 +763,24 @@ func TestDispatcher(t *testing.T) {
 				}
 
 			case tpb.TEMPLATE_VARIETY_REPORT:
-				err = dispatcher.Report(context.TODO(), bag)
+				reporter := dispatcher.GetReporter(context.TODO())
+				err = reporter.Report(bag)
+				if err != nil {
+					tt.Fatalf("unexpected failure from Buffer: %v", err)
+				}
+
+				err = reporter.Flush()
+				reporter.Done()
 
 			case tpb.TEMPLATE_VARIETY_QUOTA:
 				qma := tst.qma
 				if qma == nil {
-					qma = &QuotaMethodArgs{BestEffort: true}
+					qma = &QuotaMethodArgs{BestEffort: true, Quota: "iquota1"}
 				}
-				qres, e := dispatcher.Quota(context.TODO(), bag, qma)
+				qres, e := dispatcher.Quota(context.TODO(), bag, *qma)
+
 				if e == nil {
-					if !reflect.DeepEqual(qres, tst.expectedQuotaResult) {
+					if !reflect.DeepEqual(&qres, &tst.expectedQuotaResult) {
 						tt.Fatalf("quota result mismatch: '%v' != '%v'", qres, tst.expectedQuotaResult)
 					}
 				} else {
@@ -759,7 +789,8 @@ func TestDispatcher(t *testing.T) {
 
 			case tpb.TEMPLATE_VARIETY_ATTRIBUTE_GENERATOR:
 				err = dispatcher.Preprocess(context.TODO(), bag, responseBag)
-				expectedBag := attribute.GetFakeMutableBagForTesting(tst.responseAttrs)
+
+				expectedBag := attribute.GetMutableBagForTesting(tst.responseAttrs)
 				if strings.TrimSpace(responseBag.String()) != strings.TrimSpace(expectedBag.String()) {
 					tt.Fatalf("Output attributes mismatch: \n%s\n!=\n%s\n", responseBag.String(), expectedBag.String())
 				}
@@ -770,7 +801,7 @@ func TestDispatcher(t *testing.T) {
 			if tst.err != "" {
 				if err == nil {
 					tt.Fatalf("expected error was not thrown")
-				} else if strings.TrimSpace(tst.err) != strings.TrimSpace(err.Error()) {
+				} else if strings.TrimSpace(tst.err) != strings.TrimSpace(err.Error()) && !strings.Contains(err.Error(), tst.err) {
 					tt.Fatalf("error mismatch: '%v' != '%v'", err, tst.err)
 				}
 			} else {
@@ -787,16 +818,16 @@ func TestDispatcher(t *testing.T) {
 }
 
 func TestRefCount(t *testing.T) {
-	d := New("ident", gp, true)
+	d := New(gp, true)
 	old := d.ChangeRoute(routing.Empty())
 	if old.GetRefs() != 0 {
 		t.Fatalf("%d != 0", old.GetRefs())
 	}
-	old.IncRef()
+	old.incRef()
 	if old.GetRefs() != 1 {
 		t.Fatalf("%d != 1", old.GetRefs())
 	}
-	old.DecRef()
+	old.decRef()
 	if old.GetRefs() != 0 {
 		t.Fatalf("%d != -", old.GetRefs())
 	}

@@ -212,13 +212,16 @@
 
 - destination.ip
 - destination.port
+# destination.service is deprecated, please refer to destination.service.host
 - destination.service
 - destination.name
 - destination.uid
 - destination.namespace
 - destination.labels
+# destination.user is deprecated, please refer to destination.principal
 - destination.user
 
+# source.service is deprecated. please do not use moving forward.
 - source.service
 
 # api attributes
@@ -249,4 +252,68 @@
 - quota.cache_hit
 
 - source.principal
-- request.auth.claims  
+- request.auth.claims
+- request.auth.raw_claims
+
+# whether request is sent over mTLS enabled downstream connection.
+- connection.mtls
+- source.metadata
+- source.owner
+- source.services
+- source.workload.uid
+- source.workload.name
+- source.workload.namespace
+
+- destination.metadata
+- destination.owner
+- destination.principal
+- destination.workload.uid
+- destination.workload.name
+- destination.workload.namespace
+- destination.service.uid
+- destination.service.name
+- destination.service.namespace
+- destination.service.host
+- destination.container.name
+- destination.container.image
+
+- context.reporter.local
+- context.reporter.uid
+
+# gRPC trailer return status support
+- response.grpc_status
+- response.grpc_message
+
+- context.reporter.type
+- context.reporter.kind
+
+# SNI, for TLS connections
+- connection.requested_server_name
+
+# url_path and query_params are derived from http path header.
+# url_path is the path part of a url, with query params being stripped.
+# query_params is the normalized query part of a url.
+- request.url_path
+- request.query_params
+
+# context.proxy_error_code = %RESPONSE_FLAGS% in envoy access logs.
+# Other proxies should return equivalent error messages.
+- context.proxy_error_code
+# following are the RESPONSE_FLAGS supported by envoy as of 2018-08-10
+# https://www.envoyproxy.io/docs/envoy/latest/configuration/access_log#configuration
+- UH
+- UF
+- UO
+- NR
+- LH
+- UT
+- LR
+- UR
+- UC
+- DI
+- FI
+- RL
+- "-"
+
+- inbound
+- outbound

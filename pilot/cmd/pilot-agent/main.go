@@ -17,22 +17,23 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"strings"
 	"text/template"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/duration"
+	"github.com/gogo/protobuf/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/proxy"
-	envoy "istio.io/istio/pilot/pkg/proxy/envoy/v1"
+	"istio.io/istio/pilot/pkg/proxy/envoy"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 	"istio.io/istio/pkg/cmd"
 	"istio.io/istio/pkg/collateral"
@@ -48,7 +49,7 @@ var (
 	configPath               string
 	binaryPath               string
 	serviceCluster           string
-	availabilityZone         string
+	availabilityZone         string // TODO: remove me?
 	drainDuration            time.Duration
 	parentShutdownDuration   time.Duration
 	discoveryAddress         string
@@ -68,15 +69,17 @@ var (
 	loggingOptions = log.DefaultOptions()
 
 	rootCmd = &cobra.Command{
-		Use:   "pilot-agent",
-		Short: "Istio Pilot agent",
-		Long:  "Istio Pilot provides management plane functionality to the Istio service mesh and Istio Mixer.",
+		Use:          "pilot-agent",
+		Short:        "Istio Pilot agent.",
+		Long:         "Istio Pilot agent runs in the sidecar or gateway container and bootstraps Envoy.",
+		SilenceUsage: true,
 	}
 
 	proxyCmd = &cobra.Command{
 		Use:   "proxy",
 		Short: "Envoy proxy agent",
 		RunE: func(c *cobra.Command, args []string) error {
+			cmd.PrintFlags(c.Flags())
 			if err := log.Configure(loggingOptions); err != nil {
 				return err
 			}
@@ -123,7 +126,7 @@ var (
 
 			log.Infof("Proxy role: %#v", role)
 
-			proxyConfig := meshconfig.ProxyConfig{}
+			proxyConfig := model.DefaultProxyConfig()
 
 			// set all flags
 			proxyConfig.AvailabilityZone = availabilityZone
@@ -131,12 +134,12 @@ var (
 			proxyConfig.ConfigPath = configPath
 			proxyConfig.BinaryPath = binaryPath
 			proxyConfig.ServiceCluster = serviceCluster
-			proxyConfig.DrainDuration = ptypes.DurationProto(drainDuration)
-			proxyConfig.ParentShutdownDuration = ptypes.DurationProto(parentShutdownDuration)
+			proxyConfig.DrainDuration = types.DurationProto(drainDuration)
+			proxyConfig.ParentShutdownDuration = types.DurationProto(parentShutdownDuration)
 			proxyConfig.DiscoveryAddress = discoveryAddress
-			proxyConfig.DiscoveryRefreshDelay = ptypes.DurationProto(discoveryRefreshDelay)
+			proxyConfig.DiscoveryRefreshDelay = types.DurationProto(discoveryRefreshDelay)
 			proxyConfig.ZipkinAddress = zipkinAddress
-			proxyConfig.ConnectTimeout = ptypes.DurationProto(connectTimeout)
+			proxyConfig.ConnectTimeout = types.DurationProto(connectTimeout)
 			proxyConfig.StatsdUdpAddress = statsdUDPAddress
 			proxyConfig.ProxyAdminPort = int32(proxyAdminPort)
 			proxyConfig.Concurrency = int32(concurrency)
@@ -156,10 +159,17 @@ var (
 						// namespace of pilot is not part of discovery address use
 						// pod namespace e.g. istio-pilot:15005
 						ns = os.Getenv("POD_NAMESPACE")
-					} else {
+					} else if len(parts) == 2 {
 						// namespace is found in the discovery address
 						// e.g. istio-pilot.istio-system:15005
 						ns = parts[1]
+					} else {
+						// discovery address is a remote address. For remote clusters
+						// only support the default config, or env variable
+						ns = os.Getenv("ISTIO_NAMESPACE")
+						if ns == "" {
+							ns = "istio-system"
+						}
 					}
 				}
 				pilotSAN = envoy.GetPilotSAN(pilotDomain, ns)
@@ -205,6 +215,10 @@ var (
 				opts := make(map[string]string)
 				opts["PodName"] = os.Getenv("POD_NAME")
 				opts["PodNamespace"] = os.Getenv("POD_NAMESPACE")
+
+				// protobuf encoding of IP_ADDRESS type
+				opts["PodIP"] = base64.StdEncoding.EncodeToString(net.ParseIP(os.Getenv("INSTANCE_IP")))
+
 				if proxyConfig.ControlPlaneAuthPolicy == meshconfig.AuthenticationPolicy_MUTUAL_TLS {
 					opts["ControlPlaneAuth"] = "enable"
 				}
@@ -229,14 +243,7 @@ var (
 				}
 			}
 
-			var envoyProxy proxy.Proxy
-			if bootstrapv2 {
-				// Using a different constructor - the code will likely be refactored / split from the v1,
-				// but may expose same interface to minimize risks
-				envoyProxy = envoy.NewV2Proxy(proxyConfig, role.ServiceNode(), proxyLogLevel, pilotSAN)
-			} else {
-				envoyProxy = envoy.NewProxy(proxyConfig, role.ServiceNode(), proxyLogLevel)
-			}
+			envoyProxy := envoy.NewProxy(proxyConfig, role.ServiceNode(), proxyLogLevel, pilotSAN)
 			agent := proxy.NewAgent(envoyProxy, proxy.DefaultRetry)
 			watcher := envoy.NewWatcher(proxyConfig, agent, role, certs, pilotSAN)
 			ctx, cancel := context.WithCancel(context.Background())
@@ -251,8 +258,8 @@ var (
 	}
 )
 
-func timeDuration(dur *duration.Duration) time.Duration {
-	out, err := ptypes.Duration(dur)
+func timeDuration(dur *types.Duration) time.Duration {
+	out, err := types.DurationFromProto(dur)
 	if err != nil {
 		log.Warna(err)
 	}
@@ -263,8 +270,8 @@ func init() {
 	proxyCmd.PersistentFlags().StringVar((*string)(&registry), "serviceregistry",
 		string(serviceregistry.KubernetesRegistry),
 		fmt.Sprintf("Select the platform for service registry, options are {%s, %s, %s, %s, %s}",
-			serviceregistry.KubernetesRegistry, serviceregistry.ConsulRegistry, serviceregistry.EurekaRegistry,
-			serviceregistry.CloudFoundryRegistry, serviceregistry.MockRegistry))
+			serviceregistry.KubernetesRegistry, serviceregistry.ConsulRegistry,
+			serviceregistry.CloudFoundryRegistry, serviceregistry.MockRegistry, serviceregistry.ConfigRegistry))
 	proxyCmd.PersistentFlags().StringVar(&role.IPAddress, "ip", "",
 		"Proxy IP address. If not provided uses ${INSTANCE_IP} environment variable.")
 	proxyCmd.PersistentFlags().StringVar(&role.ID, "id", "",
@@ -307,13 +314,13 @@ func init() {
 	proxyCmd.PersistentFlags().StringVar(&customConfigFile, "customConfigFile", values.CustomConfigFile,
 		"Path to the custom configuration file")
 	// Log levels are provided by the library https://github.com/gabime/spdlog, used by Envoy.
-	proxyCmd.PersistentFlags().StringVar(&proxyLogLevel, "proxyLogLevel", "info",
+	proxyCmd.PersistentFlags().StringVar(&proxyLogLevel, "proxyLogLevel", "warn",
 		fmt.Sprintf("The log level used to start the Envoy proxy (choose from {%s, %s, %s, %s, %s, %s, %s})",
 			"trace", "debug", "info", "warn", "err", "critical", "off"))
 	proxyCmd.PersistentFlags().IntVar(&concurrency, "concurrency", int(values.Concurrency),
 		"number of worker threads to run")
 	proxyCmd.PersistentFlags().BoolVar(&bootstrapv2, "bootstrapv2", true,
-		"Use bootstrap v2")
+		"Use bootstrap v2 - DEPRECATED")
 	proxyCmd.PersistentFlags().StringVar(&templateFile, "templateFile", "",
 		"Go template bootstrap config")
 	proxyCmd.PersistentFlags().BoolVar(&disableInternalTelemetry, "disableInternalTelemetry", false,

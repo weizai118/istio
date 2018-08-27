@@ -16,33 +16,46 @@ package plugin
 
 import (
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
+	"github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2/listener"
 	http_conn "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/http_connection_manager/v2"
 
 	"istio.io/istio/pilot/pkg/model"
 )
 
-// ListenerType is the type of listener.
-type ListenerType int
+// ListenerProtocol is the protocol associated with the listener.
+type ListenerProtocol int
 
 const (
-	// ListenerTypeUnknown is an unknown type of listener.
-	ListenerTypeUnknown = iota
-	// ListenerTypeTCP is a TCP listener.
-	ListenerTypeTCP
-	// ListenerTypeHTTP is an HTTP listener.
-	ListenerTypeHTTP
+	// ListenerProtocolUnknown is an unknown type of listener.
+	ListenerProtocolUnknown = iota
+	// ListenerProtocolTCP is a TCP listener.
+	ListenerProtocolTCP
+	// ListenerProtocolHTTP is an HTTP listener.
+	ListenerProtocolHTTP
+
+	// Authn is the name of the authentication plugin passed through the command line
+	Authn = "authn"
+	// Authz is the name of the rbac plugin passed through the command line
+	Authz = "authz"
+	// Envoyfilter is the name of the envoyfilter plugin passed through the command line
+	Envoyfilter = "envoyfilter"
+	// Health is the name of the health plugin passed through the command line
+	Health = "health"
+	// Mixer is the name of the mixer plugin passed through the command line
+	Mixer = "mixer"
 )
 
-// ModelProtocolToListenerType converts from a model.Protocol to its corresponding plugin.ListenerType
-func ModelProtocolToListenerType(protocol model.Protocol) ListenerType {
+// ModelProtocolToListenerProtocol converts from a model.Protocol to its corresponding plugin.ListenerProtocol
+func ModelProtocolToListenerProtocol(protocol model.Protocol) ListenerProtocol {
 	switch protocol {
-	case model.ProtocolHTTP, model.ProtocolHTTP2, model.ProtocolGRPC, model.ProtocolHTTPS:
-		return ListenerTypeHTTP
-	case model.ProtocolTCP, model.ProtocolMongo:
-		return ListenerTypeTCP
+	case model.ProtocolHTTP, model.ProtocolHTTP2, model.ProtocolGRPC:
+		return ListenerProtocolHTTP
+	case model.ProtocolTCP, model.ProtocolHTTPS, model.ProtocolTLS,
+		model.ProtocolMongo, model.ProtocolRedis:
+		return ListenerProtocolTCP
 	default:
-		return ListenerTypeUnknown
+		return ListenerProtocolUnknown
 	}
 }
 
@@ -50,8 +63,8 @@ func ModelProtocolToListenerType(protocol model.Protocol) ListenerType {
 // be set, it's up to the callee to validate required fields are set and emit error if they are not.
 // These are for reading only and should not be modified.
 type InputParams struct {
-	// ListenerType is the type of listener (TCP, HTTP etc.). Must be set.
-	ListenerType ListenerType
+	// ListenerProtocol is the protocol/class of listener (TCP, HTTP etc.). Must be set.
+	ListenerProtocol ListenerProtocol
 	// Env is the model environment. Must be set.
 	Env *model.Environment
 	// Node is the node the response is for.
@@ -61,12 +74,26 @@ type InputParams struct {
 	// ServiceInstance is the service instance colocated with the listener (applies to sidecar).
 	ServiceInstance *model.ServiceInstance
 	// Service is the service colocated with the listener (applies to sidecar).
+	// For outbound TCP listeners, it is the destination service.
 	Service *model.Service
+	// Port is the port for which the listener is being built
+	// For outbound/inbound sidecars this is the service port (not endpoint port)
+	// For inbound listener on gateway, this is the gateway server port
+	Port *model.Port
+
+	// Push holds stats and other information about the current push.
+	Push *model.PushContext
 }
 
 // FilterChain describes a set of filters (HTTP or TCP) with a shared TLS context.
-// Only one of TCP or HTTP can be populated. TODO: when Envoy supports port multiplexing remove this constraint.
 type FilterChain struct {
+	// FilterChainMatch is the match used to select the filter chain.
+	FilterChainMatch *listener.FilterChainMatch
+	// TLSContext is the TLS settings for this filter chains.
+	TLSContext *auth.DownstreamTlsContext
+	// RequiredListenerFilters are the filters needed for the whole listener, not particular to this
+	// filter chain.
+	RequiredListenerFilters []listener.ListenerFilter
 	// HTTP is the set of HTTP filters for this filter chain
 	HTTP []*http_conn.HttpFilter
 	// TCP is the set of network (TCP) filters for this filter chain.
@@ -81,7 +108,7 @@ type MutableObjects struct {
 	// Listener is the listener being built. Must be initialized before Plugin methods are called.
 	Listener *xdsapi.Listener
 
-	// FilterChains is the set of filter chains that will be attached to Listener
+	// FilterChains is the set of filter chains that will be attached to Listener.
 	FilterChains []FilterChain
 }
 
@@ -98,11 +125,13 @@ type Plugin interface {
 	OnInboundListener(in *InputParams, mutable *MutableObjects) error
 
 	// OnOutboundCluster is called whenever a new cluster is added to the CDS output.
-	OnOutboundCluster(env model.Environment, node model.Proxy, service *model.Service, servicePort *model.Port,
+	// This is called once per push cycle, and not for every sidecar/gateway
+	OnOutboundCluster(env *model.Environment, push *model.PushContext, service *model.Service, servicePort *model.Port,
 		cluster *xdsapi.Cluster)
 
 	// OnInboundCluster is called whenever a new cluster is added to the CDS output.
-	OnInboundCluster(env model.Environment, node model.Proxy, service *model.Service, servicePort *model.Port,
+	// Called for each sidecar
+	OnInboundCluster(env *model.Environment, node *model.Proxy, push *model.PushContext, service *model.Service, servicePort *model.Port,
 		cluster *xdsapi.Cluster)
 
 	// OnOutboundRouteConfiguration is called whenever a new set of virtual hosts (a set of virtual hosts with routes) is
@@ -111,4 +140,8 @@ type Plugin interface {
 
 	// OnInboundRouteConfiguration is called whenever a new set of virtual hosts are added to the inbound path.
 	OnInboundRouteConfiguration(in *InputParams, routeConfiguration *xdsapi.RouteConfiguration)
+
+	// OnInboundFilterChains is called whenever a plugin needs to setup the filter chains, including relevant filter chain
+	// configuration, like FilterChainMatch and TLSContext.
+	OnInboundFilterChains(in *InputParams) []FilterChain
 }

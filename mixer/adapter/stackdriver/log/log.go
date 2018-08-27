@@ -48,7 +48,7 @@ type (
 		makeClient     makeClientFn
 		makeSyncClient makeSyncClientFn
 		types          map[string]*logentry.Type
-		mg             *helper.MetadataGenerator
+		mg             helper.MetadataGenerator
 		cfg            *config.Params
 	}
 
@@ -66,6 +66,7 @@ type (
 		l                  adapter.Logger
 		client, syncClient io.Closer
 		info               map[string]info
+		md                 helper.Metadata
 	}
 )
 
@@ -76,7 +77,7 @@ var (
 )
 
 // NewBuilder returns a builder implementing the logentry.HandlerBuilder interface.
-func NewBuilder(mg *helper.MetadataGenerator) logentry.HandlerBuilder {
+func NewBuilder(mg helper.MetadataGenerator) logentry.HandlerBuilder {
 	return &builder{makeClient: logging.NewClient, makeSyncClient: logadmin.NewClient, mg: mg}
 }
 
@@ -138,7 +139,7 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 				_, sinkErr = syncClient.UpdateSink(ctx, sink)
 			}
 			if sinkErr != nil {
-				logger.Warningf("failed to create/update stackdriver logging sink: %v", err)
+				logger.Warningf("failed to create/update stackdriver logging sink: %v", sinkErr)
 			}
 		}
 
@@ -150,7 +151,7 @@ func (b *builder) Build(ctx context.Context, env adapter.Env) (adapter.Handler, 
 			flush:  client.Logger(name).Flush,
 		}
 	}
-	return &handler{client: client, syncClient: syncClient, now: time.Now, l: logger, info: infos}, nil
+	return &handler{client: client, syncClient: syncClient, now: time.Now, l: logger, info: infos, md: md}, nil
 }
 
 func (h *handler) HandleLogEntry(_ context.Context, values []*logentry.Instance) error {
@@ -186,9 +187,11 @@ func (h *handler) HandleLogEntry(_ context.Context, values []*logentry.Instance)
 
 		// If we don't set a resource the SDK will populate a global resource for us.
 		if v.MonitoredResourceType != "" {
+			labels := helper.ToStringMap(v.MonitoredResourceDimensions)
+			h.md.FillProjectMetadata(labels)
 			e.Resource = &monitoredres.MonitoredResource{
 				Type:   v.MonitoredResourceType,
-				Labels: helper.ToStringMap(v.MonitoredResourceDimensions),
+				Labels: labels,
 			}
 		}
 		linfo.log(e)
@@ -225,10 +228,27 @@ func toReq(mapping *config.Params_LogInfo_HttpRequestMapping, variables map[stri
 		return nil
 	}
 
+	reqURL := &url.URL{}
+	if variables[mapping.Url] != nil {
+		if u, err := url.Parse(variables[mapping.Url].(string)); err == nil {
+			reqURL = u
+		}
+	}
+	method := ""
+	if variables[mapping.Method] != nil {
+		method = variables[mapping.Method].(string)
+	}
+	var httpHeaders http.Header
+	httpHeaders = make(http.Header)
+	if variables[mapping.UserAgent] != nil {
+		httpHeaders.Add("User-Agent", variables[mapping.UserAgent].(string))
+	}
+	if variables[mapping.Referer] != nil {
+		httpHeaders.Add("Referer", variables[mapping.Referer].(string))
+	}
 	// Required to make the Stackdriver client lib not barf.
-	// TODO: see if we can plumb the URL through to here to populate this meaningfully.
 	req := &logging.HTTPRequest{
-		Request: &http.Request{URL: &url.URL{}},
+		Request: &http.Request{URL: reqURL, Method: method, Header: httpHeaders},
 	}
 
 	reqs := variables[mapping.RequestSize]
@@ -242,8 +262,8 @@ func toReq(mapping *config.Params_LogInfo_HttpRequestMapping, variables map[stri
 	}
 
 	code := variables[mapping.Status]
-	if status, ok := code.(int); ok {
-		req.Status = status
+	if status, ok := code.(int64); ok {
+		req.Status = int(status)
 	}
 
 	l := variables[mapping.Latency]
@@ -251,15 +271,8 @@ func toReq(mapping *config.Params_LogInfo_HttpRequestMapping, variables map[stri
 		req.Latency = latency
 	}
 
-	lip := variables[mapping.LocalIp]
-	if localip, ok := lip.(string); ok {
-		req.LocalIP = localip
-	}
-
-	rip := variables[mapping.RemoteIp]
-	if remoteip, ok := rip.(string); ok {
-		req.RemoteIP = remoteip
-	}
+	req.LocalIP = fmt.Sprintf("%v", variables[mapping.LocalIp])
+	req.RemoteIP = fmt.Sprintf("%v", variables[mapping.RemoteIp])
 	return req
 }
 

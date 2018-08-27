@@ -20,21 +20,15 @@ import (
 	"strconv"
 
 	authn "istio.io/api/authentication/v1alpha1"
-	meshconfig "istio.io/api/mesh/v1alpha1"
-	"istio.io/istio/pkg/log"
 )
 
 // JwtKeyResolver resolves JWT public key and JwksURI.
 var JwtKeyResolver = newJwksResolver(JwtPubKeyExpireDuration, JwtPubKeyEvictionDuration, JwtPubKeyRefreshInterval)
 
 // GetConsolidateAuthenticationPolicy returns the authentication policy for
-// service specified by hostname and port, if defined.
-// If not, it generates and output a policy that is equivalent to the legacy flag
-// and/or service annotation. Once these legacy flags/config deprecated,
-// this function can be placed by a call to store.AuthenticationPolicyByDestination
-// directly.
-func GetConsolidateAuthenticationPolicy(mesh *meshconfig.MeshConfig, store IstioConfigStore, hostname string, port *Port) *authn.Policy {
-	config := store.AuthenticationPolicyByDestination(hostname, port)
+// service specified by hostname and port, if defined. It also tries to resolve JWKS URI if necessary.
+func GetConsolidateAuthenticationPolicy(store IstioConfigStore, service *Service, port *Port) *authn.Policy {
+	config := store.AuthenticationPolicyByDestination(service, port)
 	if config != nil {
 		policy := config.Spec.(*authn.Policy)
 		if err := JwtKeyResolver.SetAuthenticationPolicyJwksURIs(policy); err == nil {
@@ -42,42 +36,6 @@ func GetConsolidateAuthenticationPolicy(mesh *meshconfig.MeshConfig, store Istio
 		}
 	}
 
-	legacyPolicy := consolidateAuthPolicy(mesh, port.AuthenticationPolicy)
-	log.Debugf("No authentication policy found for  %s:%d. Fallback to legacy authentication mode %v\n",
-		hostname, port.Port, legacyPolicy)
-	return legacyAuthenticationPolicyToPolicy(legacyPolicy)
-}
-
-// consolidateAuthPolicy returns service auth policy, if it's not INHERIT. Else,
-// returns mesh policy.
-func consolidateAuthPolicy(mesh *meshconfig.MeshConfig,
-	serviceAuthPolicy meshconfig.AuthenticationPolicy) meshconfig.AuthenticationPolicy {
-	if serviceAuthPolicy != meshconfig.AuthenticationPolicy_INHERIT {
-		return serviceAuthPolicy
-	}
-	// TODO: use AuthenticationPolicy for mesh policy and remove this conversion
-	switch mesh.AuthPolicy {
-	case meshconfig.MeshConfig_MUTUAL_TLS:
-		return meshconfig.AuthenticationPolicy_MUTUAL_TLS
-	case meshconfig.MeshConfig_NONE:
-		return meshconfig.AuthenticationPolicy_NONE
-	default:
-		// Never get here, there are no other enum value for mesh.AuthPolicy.
-		panic(fmt.Sprintf("Unknown mesh auth policy: %v\n", mesh.AuthPolicy))
-	}
-}
-
-// If input legacy is AuthenticationPolicy_MUTUAL_TLS, return a authentication policy equivalent
-// to it. Else, returns nil (implies no authentication is used)
-func legacyAuthenticationPolicyToPolicy(legacy meshconfig.AuthenticationPolicy) *authn.Policy {
-	if legacy == meshconfig.AuthenticationPolicy_MUTUAL_TLS {
-		return &authn.Policy{
-			Peers: []*authn.PeerAuthenticationMethod{{
-				Params: &authn.PeerAuthenticationMethod_Mtls{
-					&authn.MutualTls{},
-				}}},
-		}
-	}
 	return nil
 }
 

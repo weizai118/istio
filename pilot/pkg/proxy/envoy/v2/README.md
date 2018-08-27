@@ -1,35 +1,53 @@
-
 # Debug interface
 
-Debugging for v2 is a bit different - we no longer use a cache.
+The debug handlers are configured on the monitoring port (default 9093) as well
+as on the http port (8080).
 
-The debug handlers are configured on the monitoring port (default 9093).
 
 ```bash
 
-PILOT=istio-pilot:9093
+PILOT=istio-pilot.istio-system:9093
 
+# What is sent to envoy
+# Listeners and routes
+curl $PILOT/debug/adsz
+
+# Endpoints
 curl $PILOT/debug/edsz
-curl $PILOT/debug/ldsz
+
+# Clusters
 curl $PILOT/debug/cdsz
-
-
-
-# General metrics
-curl $PILOT/metrics 
 
 
 ```
 
-Each handler takes an extra parameter, "debug=0|1" which flips the verbosity of the 
+Each handler takes an extra parameter, "debug=0|1" which flips the verbosity of the
 messages for that component (similar with envoy).
 
-Each handler takes an extra parameter "push=1", which triggers a config push to all
-connected endpoints.
+An extra parameter "push=1" triggers a config push to all connected endpoints.
 
 Handlers should list, in json format:
 - one entry for each connected envoy
 - the timestamp of the connection
+
+In addition, Pilot debug interface can show pilot's internal view of the config:
+
+```bash
+
+
+# General metrics
+curl $PILOT/metrics
+
+# All services/external services from all registries
+curl $PILOT/debug/registryz
+
+# All endpoints
+curl $PILOT/debug/endpointz[?brief=1]
+
+# All configs.
+curl $PILOT/debug/configz
+
+```
 
 Example for EDS:
 
@@ -39,7 +57,7 @@ Example for EDS:
    // Cluster
    "echosrv.istio-system.svc.cluster.local|grpc-ping": {
     "EdsClients": {
-      // One for each connected envoy. 
+      // One for each connected envoy.
       "sidecar~172.17.0.8~echosrv-deployment-5b7878cc9-dlm8j.istio-system~istio-system.svc.cluster.local-116": {
         // Should match the info in the node (this is the real remote address)
         "PeerAddr": "172.17.0.8:42044",
@@ -93,30 +111,30 @@ Example for EDS:
 # Log messages
 
 Verbose messages for v2 is controlled by env variables PILOT_DEBUG_{EDS,CDS,LDS}.
-Setting it to "0" disables debug, setting it to "1" enables - debug is currently 
+Setting it to "0" disables debug, setting it to "1" enables - debug is currently
 enabled by default, since it is not very verbose.
 
-Messages are prefixed with EDS/LDS/CDS. 
+Messages are prefixed with EDS/LDS/CDS.
 
 What we log and how to use it:
-- sidecar connecting to pilot: "EDS/CSD/LDS: REQ ...". This includes the node, IP and the discovery 
+- sidecar connecting to pilot: "EDS/CSD/LDS: REQ ...". This includes the node, IP and the discovery
 request proto. Should show up when the sidecar starts up.
 - sidecar disconnecting from pilot: xDS: close. This happens when a pod is stopped.
 - push events - whenever we push a config the the sidecar.
-- "XDS: Registry event..." - indicates a registry event, should be followed by PUSH messages for 
-each endpoint. 
-- "EDS: no instances": pay close attention to this event, it indicates that Envoy asked for 
+- "XDS: Registry event..." - indicates a registry event, should be followed by PUSH messages for
+each endpoint.
+- "EDS: no instances": pay close attention to this event, it indicates that Envoy asked for
 a cluster but pilot doesn't have any valid instance. At some point after, when the instance eventually
 shows up you should see an EDS PUSH message.
 
-In addition, the registry has slightly more verbose messages about the events, so it is 
+In addition, the registry has slightly more verbose messages about the events, so it is
 possible to map an event in the registry to config pushes.
 
 
 # Example requests and responses
 
 
-EDS: 
+EDS:
 
 ```bash
 

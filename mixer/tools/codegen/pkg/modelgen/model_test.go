@@ -13,28 +13,28 @@
 // limitations under the License.
 
 // nolint
-//go:generate protoc --include_imports --include_source_info testdata/BasicTopLevelFields.proto -otestdata/BasicTopLevelFields.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/ExplicitTemplateName.proto -otestdata/ExplicitTemplateName.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/BadExplicitTemplateName.proto -otestdata/BadExplicitTemplateName.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc testdata/Proto2BadSyntax.proto -otestdata/noSourceInfoNoImportsBadProto.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info  testdata/multiFileOne.proto testdata/multiFileTwo.proto -otestdata/multiFile.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/MissingBothRequiredExt.proto -otestdata/MissingBothRequiredExt.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/MissingPackageName.proto -otestdata/MissingPackageName.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/MissingTemplateMessage.proto -otestdata/MissingTemplateMessage.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/MissingTemplateVarietyExt.proto -otestdata/MissingTemplateVarietyExt.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/Proto2BadSyntax.proto -otestdata/Proto2BadSyntax.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/ReservedFieldInTemplate.proto -otestdata/ReservedFieldInTemplate.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/SimpleApaTemplate.proto -otestdata/SimpleApaTemplate.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/SimpleTemplate.proto -otestdata/SimpleTemplate.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/UnsupportedMapVal.proto -otestdata/UnsupportedMapVal.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/UnsupportedMapKey.proto -otestdata/UnsupportedMapKey.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/UnsupportedFieldTypeEnum.proto -otestdata/UnsupportedFieldTypeEnum.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/UnsupportedFieldTypeMessage.proto -otestdata/UnsupportedFieldTypeMessage.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/UnsupportedFieldTypePrimitive.proto -otestdata/UnsupportedFieldTypePrimitive.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/UnsupportedValueTypeInAPA.proto -otestdata/UnsupportedValueTypeInAPA.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/WrongPkgName.proto -otestdata/WrongPkgName.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/UnsupportedTypeInAPAOutTemplate.proto -otestdata/UnsupportedTypeInAPAOutTemplate.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
-//go:generate protoc --include_imports --include_source_info testdata/BasicTopLevelFields.proto testdata/SimpleTemplate.proto -otestdata/twoTemplatesError.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/BasicTopLevelFields.proto -otestdata/BasicTopLevelFields.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/ExplicitTemplateName.proto -otestdata/ExplicitTemplateName.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/BadExplicitTemplateName.proto -otestdata/BadExplicitTemplateName.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh testdata/Proto2BadSyntax.proto -otestdata/noSourceInfoNoImportsBadProto.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info  testdata/multiFileOne.proto testdata/multiFileTwo.proto -otestdata/multiFile.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/MissingBothRequiredExt.proto -otestdata/MissingBothRequiredExt.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/MissingPackageName.proto -otestdata/MissingPackageName.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/MissingTemplateMessage.proto -otestdata/MissingTemplateMessage.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/MissingTemplateVarietyExt.proto -otestdata/MissingTemplateVarietyExt.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/Proto2BadSyntax.proto -otestdata/Proto2BadSyntax.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/ReservedFieldInTemplate.proto -otestdata/ReservedFieldInTemplate.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/SimpleApaTemplate.proto -otestdata/SimpleApaTemplate.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/SimpleTemplate.proto -otestdata/SimpleTemplate.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/UnsupportedMapVal.proto -otestdata/UnsupportedMapVal.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/UnsupportedMapKey.proto -otestdata/UnsupportedMapKey.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/UnsupportedFieldTypeEnum.proto -otestdata/UnsupportedFieldTypeEnum.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/UnsupportedFieldTypeMessage.proto -otestdata/UnsupportedFieldTypeMessage.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/UnsupportedFieldTypePrimitive.proto -otestdata/UnsupportedFieldTypePrimitive.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/UnsupportedValueTypeInAPA.proto -otestdata/UnsupportedValueTypeInAPA.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/WrongPkgName.proto -otestdata/WrongPkgName.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/UnsupportedTypeInAPAOutTemplate.proto -otestdata/UnsupportedTypeInAPAOutTemplate.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
+//go:generate $GOPATH/src/istio.io/istio/bin/protoc.sh --include_imports --include_source_info testdata/BasicTopLevelFields.proto testdata/SimpleTemplate.proto -otestdata/twoTemplatesError.descriptor -I$GOPATH/src/istio.io/istio/vendor/istio.io/api -I.
 
 package modelgen
 
@@ -64,7 +64,7 @@ func TestErrorInTemplate(t *testing.T) {
 			"must not contain the reserved field name 'Name'"}},
 		{"testdata/Proto2BadSyntax.descriptor", []string{"Proto2BadSyntax.proto:3: Only proto3 template files are allowed."}},
 		{"testdata/UnsupportedFieldTypePrimitive.descriptor", []string{"unsupported type for field 'o'. " +
-			"Supported types are 'istio.mixer.adapter.model.v1beta1.Value, string, int64, double, bool, other messages " +
+			"Supported types are 'istio.policy.v1beta1.Value, string, int64, double, bool, other messages " +
 			"defined within the same package, map<string, any of the listed supported types>"}},
 		{"testdata/UnsupportedMapKey.descriptor", []string{"unsupported type for field 'o'."}},
 		{"testdata/UnsupportedMapVal.descriptor", []string{"unsupported type for field 'o'."}},
@@ -225,15 +225,15 @@ func testSimpleTemplateFields(msgInfo MessageInfo, t *testing.T) {
 		"FieldDouble", TypeInfo{Name: "float64"}, "")
 	testField(t, testFileName, msgInfo,
 		"val",
-		TypeInfo{Name: "istio.mixer.adapter.model.v1beta1.Value", IsValueType: true, Import: "mixer/adapter/model/v1beta1/type.proto"}, "Val",
+		TypeInfo{Name: "istio.policy.v1beta1.Value", IsValueType: true, Import: "policy/v1beta1/type.proto"}, "Val",
 		TypeInfo{Name: "interface{}", IsValueType: true}, "single line block comment")
 	testField(t, testFileName, msgInfo,
 		"dimensions",
-		TypeInfo{Name: "map<string, istio.mixer.adapter.model.v1beta1.Value>",
+		TypeInfo{Name: "map<string, istio.policy.v1beta1.Value>",
 			IsMap:    true,
-			Import:   "mixer/adapter/model/v1beta1/type.proto",
+			Import:   "policy/v1beta1/type.proto",
 			MapKey:   &TypeInfo{Name: "string"},
-			MapValue: &TypeInfo{Name: "istio.mixer.adapter.model.v1beta1.Value", IsValueType: true, Import: "mixer/adapter/model/v1beta1/type.proto"},
+			MapValue: &TypeInfo{Name: "istio.policy.v1beta1.Value", IsValueType: true, Import: "policy/v1beta1/type.proto"},
 		},
 		"Dimensions",
 		TypeInfo{

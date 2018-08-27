@@ -18,20 +18,29 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"strings"
+	"time"
 
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	ot "github.com/opentracing/opentracing-go"
+	oprometheus "github.com/prometheus/client_golang/prometheus"
+	"go.opencensus.io/exporter/prometheus"
+	"go.opencensus.io/plugin/ocgrpc"
+	"go.opencensus.io/stats/view"
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	mixerpb "istio.io/api/mixer/v1"
 	"istio.io/istio/mixer/pkg/adapter"
 	"istio.io/istio/mixer/pkg/api"
+	"istio.io/istio/mixer/pkg/checkcache"
 	"istio.io/istio/mixer/pkg/config"
+	"istio.io/istio/mixer/pkg/config/crd"
 	"istio.io/istio/mixer/pkg/config/store"
 	"istio.io/istio/mixer/pkg/pool"
 	"istio.io/istio/mixer/pkg/runtime"
+	runtimeconfig "istio.io/istio/mixer/pkg/runtime/config"
 	"istio.io/istio/mixer/pkg/runtime/dispatcher"
 	"istio.io/istio/mixer/pkg/template"
 	"istio.io/istio/pkg/ctrlz"
@@ -50,7 +59,9 @@ type Server struct {
 	monitor   *monitor
 	tracer    io.Closer
 
+	checkCache *checkcache.Cache
 	dispatcher dispatcher.Dispatcher
+	controlZ   *ctrlz.Server
 
 	// probes
 	livenessProbe  probe.Controller
@@ -63,13 +74,17 @@ type listenFunc func(network string, address string) (net.Listener, error)
 // replaceable set of functions for fault injection
 type patchTable struct {
 	newRuntime func(s store.Store, templates map[string]*template.Info, adapters map[string]*adapter.Info,
-		identityAttribute string, defaultConfigNamespace string, executorPool *pool.GoroutinePool,
+		defaultConfigNamespace string, executorPool *pool.GoroutinePool,
 		handlerPool *pool.GoroutinePool, enableTracing bool) *runtime.Runtime
 	configTracing func(serviceName string, options *tracing.Options) (io.Closer, error)
 	startMonitor  func(port uint16, enableProfiling bool, lf listenFunc) (*monitor, error)
 	listen        listenFunc
 	configLog     func(options *log.Options) error
 	runtimeListen func(runtime *runtime.Runtime) error
+
+	// monitoring-related setup
+	newOpenCensusExporter   func() (view.Exporter, error)
+	registerOpenCensusViews func(...*view.View) error
 }
 
 // New instantiates a fully functional Mixer server, ready for traffic.
@@ -85,6 +100,10 @@ func newPatchTable() *patchTable {
 		listen:        net.Listen,
 		configLog:     log.Configure,
 		runtimeListen: func(rt *runtime.Runtime) error { return rt.StartListening() },
+		newOpenCensusExporter: func() (view.Exporter, error) {
+			return prometheus.NewExporter(prometheus.Options{Registry: oprometheus.DefaultRegisterer.(*oprometheus.Registry)})
+		},
+		registerOpenCensusViews: view.Register,
 	}
 }
 
@@ -116,9 +135,8 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 
 	var grpcOptions []grpc.ServerOption
 	grpcOptions = append(grpcOptions, grpc.MaxConcurrentStreams(uint32(a.MaxConcurrentStreams)))
-	grpcOptions = append(grpcOptions, grpc.MaxMsgSize(int(a.MaxMessageSize)))
+	grpcOptions = append(grpcOptions, grpc.MaxRecvMsgSize(int(a.MaxMessageSize)))
 
-	var interceptors []grpc.UnaryServerInterceptor
 	var err error
 
 	if a.TracingOptions.TracingEnabled() {
@@ -127,23 +145,33 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 			_ = s.Close()
 			return nil, fmt.Errorf("unable to setup tracing")
 		}
-		interceptors = append(interceptors, otgrpc.OpenTracingServerInterceptor(ot.GlobalTracer()))
-	}
-
-	// setup server prometheus monitoring (as final interceptor in chain)
-	interceptors = append(interceptors, grpc_prometheus.UnaryServerInterceptor)
-	grpc_prometheus.EnableHandlingTimeHistogram()
-	grpcOptions = append(grpcOptions, grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(interceptors...)))
-
-	if s.monitor, err = p.startMonitor(a.MonitoringPort, a.EnableProfiling, p.listen); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("unable to setup monitoring: %v", err)
+		grpcOptions = append(grpcOptions, grpc.UnaryInterceptor(otgrpc.OpenTracingServerInterceptor(ot.GlobalTracer())))
 	}
 
 	// get the network stuff setup
-	if s.listener, err = p.listen("tcp", fmt.Sprintf(":%d", a.APIPort)); err != nil {
+	network := "tcp"
+	address := fmt.Sprintf(":%d", a.APIPort)
+	if a.APIAddress != "" {
+		idx := strings.Index(a.APIAddress, "://")
+		if idx < 0 {
+			address = a.APIAddress
+		} else {
+			network = a.APIAddress[:idx]
+			address = a.APIAddress[idx+3:]
+		}
+	}
+
+	if network == "unix" {
+		// remove Unix socket before use.
+		if err = os.Remove(address); err != nil && !os.IsNotExist(err) {
+			// Anything other than "file not found" is an error.
+			return nil, fmt.Errorf("unable to remove unix://%s: %v", address, err)
+		}
+	}
+
+	if s.listener, err = p.listen(network, address); err != nil {
 		_ = s.Close()
-		return nil, fmt.Errorf("unable to listen on socket: %v", err)
+		return nil, fmt.Errorf("unable to listen: %v", err)
 	}
 
 	st := a.ConfigStore
@@ -159,7 +187,8 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 		}
 
 		reg := store.NewRegistry(config.StoreInventory()...)
-		if st, err = reg.NewStore(configStoreURL); err != nil {
+		groupVersion := &schema.GroupVersion{Group: crd.ConfigAPIGroup, Version: crd.ConfigAPIVersion}
+		if st, err = reg.NewStore(configStoreURL, groupVersion, a.CredentialOptions); err != nil {
 			_ = s.Close()
 			return nil, fmt.Errorf("unable to connect to the configuration server: %v", err)
 		}
@@ -172,19 +201,50 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 		templateMap[k] = &t
 	}
 
-	rt = p.newRuntime(st, templateMap, adapterMap, a.ConfigIdentityAttribute, a.ConfigDefaultNamespace,
+	kinds := runtimeconfig.KindMap(adapterMap, templateMap)
+	if err := st.Init(kinds); err != nil {
+		return nil, fmt.Errorf("unable to initialize config store: %v", err)
+	}
+
+	// block wait for the config store to sync
+	log.Info("Awaiting for config store sync...")
+	if err := st.WaitForSynced(30 * time.Second); err != nil {
+		return nil, err
+	}
+
+	log.Info("Starting runtime config watch...")
+	rt = p.newRuntime(st, templateMap, adapterMap, a.ConfigDefaultNamespace,
 		s.gp, s.adapterGP, a.TracingOptions.TracingEnabled())
 
 	if err = p.runtimeListen(rt); err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("unable to listen: %v", err)
 	}
+
 	s.dispatcher = rt.Dispatcher()
+
+	if a.NumCheckCacheEntries > 0 {
+		s.checkCache = checkcache.New(a.NumCheckCacheEntries)
+	}
 
 	// get the grpc server wired up
 	grpc.EnableTracing = a.EnableGRPCTracing
+
+	exporter, err := p.newOpenCensusExporter()
+	if err != nil {
+		return nil, fmt.Errorf("could not build opencensus exporter: %v", err)
+	}
+	view.RegisterExporter(exporter)
+
+	// Register the views to collect server request count.
+	if err := p.registerOpenCensusViews(ocgrpc.DefaultServerViews...); err != nil {
+		return nil, fmt.Errorf("could not register default server views: %v", err)
+	}
+
+	grpcOptions = append(grpcOptions, grpc.StatsHandler(&ocgrpc.ServerHandler{}))
+
 	s.server = grpc.NewServer(grpcOptions...)
-	mixerpb.RegisterMixerServer(s.server, api.NewGRPCServer(s.dispatcher, s.gp))
+	mixerpb.RegisterMixerServer(s.server, api.NewGRPCServer(s.dispatcher, s.gp, s.checkCache))
 
 	if a.LivenessProbeOptions.IsValid() {
 		s.livenessProbe = probe.NewFileController(a.LivenessProbeOptions)
@@ -199,7 +259,13 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 		s.readinessProbe.Start()
 	}
 
-	go ctrlz.Run(a.IntrospectionOptions, nil)
+	log.Info("Starting monitor server...")
+	if s.monitor, err = p.startMonitor(a.MonitoringPort, a.EnableProfiling, p.listen); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("unable to setup monitoring: %v", err)
+	}
+
+	s.controlZ, _ = ctrlz.Run(a.IntrospectionOptions, nil)
 
 	return s, nil
 }
@@ -233,6 +299,14 @@ func (s *Server) Close() error {
 	if s.shutdown != nil {
 		s.server.GracefulStop()
 		_ = s.Wait()
+	}
+
+	if s.controlZ != nil {
+		s.controlZ.Close()
+	}
+
+	if s.checkCache != nil {
+		_ = s.checkCache.Close()
 	}
 
 	if s.listener != nil {

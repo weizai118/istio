@@ -15,51 +15,83 @@
 package v2
 
 import (
+	"fmt"
+
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	"github.com/gogo/protobuf/types"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pkg/log"
 )
 
-func (s *DiscoveryServer) pushLds(node model.Proxy, con *XdsConnection) error {
-	ls, err := s.ConfigGenerator.BuildListeners(s.env, node)
+func (s *DiscoveryServer) pushLds(con *XdsConnection, push *model.PushContext, version string) error {
+	// TODO: Modify interface to take services, and config instead of making library query registry
+
+	rawListeners, err := s.generateRawListeners(con, push)
 	if err != nil {
-		log.Warnf("ADS: config failure, closing grpc %v", err)
 		return err
 	}
-	con.HTTPListeners = ls
-	response, err := ldsDiscoveryResponse(ls, node)
+	if s.DebugConfigs {
+		con.LDSListeners = rawListeners
+	}
+	response := ldsDiscoveryResponse(rawListeners, *con.modelNode, version)
+	if version != versionInfo() {
+		// Just report for now - after debugging we can suppress the push.
+		// Change1 -> push1
+		// Change2 (after few seconds ) -> push2
+		// push1 may take 10 seconds and be slower - and a sidecar may get
+		// LDS from push2 first, followed by push1 - which will be out of date.
+		adsLog.Warnf("LDS: overlap %s %s %s", con.ConID, version, versionInfo())
+	}
+	err = con.send(response)
 	if err != nil {
-		log.Warnf("LDS: config failure, closing grpc %v", err)
+		adsLog.Warnf("LDS: Send failure, closing grpc %v", err)
+		pushes.With(prometheus.Labels{"type": "lds_senderr"}).Add(1)
 		return err
 	}
-	err = con.stream.Send(response)
-	if err != nil {
-		log.Warnf("LDS: Send failure, closing grpc %v", err)
-		return err
-	}
-	if adsDebug {
-		log.Infof("LDS: PUSH for node:%s addr:%q listeners:%d", node, con.PeerAddr, len(ls))
-	}
+	pushes.With(prometheus.Labels{"type": "lds"}).Add(1)
+
+	adsLog.Infof("LDS: PUSH for node:%s addr:%q listeners:%d", con.modelNode.ID, con.PeerAddr, len(rawListeners))
 	return nil
 }
 
+func (s *DiscoveryServer) generateRawListeners(con *XdsConnection, push *model.PushContext) ([]*xdsapi.Listener, error) {
+	rawListeners, err := s.ConfigGenerator.BuildListeners(s.env, con.modelNode, push)
+	if err != nil {
+		adsLog.Warnf("LDS: Failed to generate listeners for node %s: %v", con.modelNode, err)
+		pushes.With(prometheus.Labels{"type": "lds_builderr"}).Add(1)
+		return nil, err
+	}
+
+	for _, l := range rawListeners {
+		if err = l.Validate(); err != nil {
+			retErr := fmt.Errorf("LDS: Generated invalid listener for node %v: %v", con.modelNode, err)
+			adsLog.Errorf("LDS: Generated invalid listener for node %s: %v, %v", con.modelNode, err, l)
+			pushes.With(prometheus.Labels{"type": "lds_builderr"}).Add(1)
+			// Generating invalid listeners is a bug.
+			// Panic instead of trying to recover from that, since we can't
+			// assume anything about the state.
+			panic(retErr.Error())
+		}
+	}
+	return rawListeners, nil
+}
+
 // LdsDiscoveryResponse returns a list of listeners for the given environment and source node.
-func ldsDiscoveryResponse(ls []*xdsapi.Listener, node model.Proxy) (*xdsapi.DiscoveryResponse, error) {
+func ldsDiscoveryResponse(ls []*xdsapi.Listener, node model.Proxy, version string) *xdsapi.DiscoveryResponse {
 	resp := &xdsapi.DiscoveryResponse{
 		TypeUrl:     ListenerType,
-		VersionInfo: versionInfo(),
+		VersionInfo: version,
 		Nonce:       nonce(),
 	}
 	for _, ll := range ls {
 		if ll == nil {
-			log.Errora("Nil listener ", ll)
+			adsLog.Errora("Nil listener ", ll)
 			continue
 		}
 		lr, _ := types.MarshalAny(ll)
 		resp.Resources = append(resp.Resources, *lr)
 	}
 
-	return resp, nil
+	return resp
 }

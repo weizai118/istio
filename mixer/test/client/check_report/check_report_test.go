@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package checkReport
+package client_test
 
 import (
 	"fmt"
@@ -34,15 +34,15 @@ const checkAttributesOkGet = `
   "request.useragent": "Go-http-client/1.1",
   "request.method": "GET",
   "request.scheme": "http",
+  "request.url_path": "/echo",
   "source.uid": "POD11",
   "source.namespace": "XYZ11",
-  "source.ip": "[127 0 0 1]",
-  "source.port": "*",
   "target.name": "target-name",
   "target.user": "target-user",
   "target.uid": "POD222",
   "target.namespace": "XYZ222",
   "connection.mtls": false,
+  "origin.ip": "[127 0 0 1]",
   "request.headers": {
      ":method": "GET",
      ":path": "/echo",
@@ -58,6 +58,7 @@ const checkAttributesOkGet = `
 const reportAttributesOkGet = `
 {
   "context.protocol": "http",
+  "context.proxy_error_code": "-",
   "mesh1.ip": "[1 1 1 1]",
   "mesh2.ip": "[0 0 0 0 0 0 0 0 0 0 255 255 204 152 189 116]",
   "mesh3.ip": "[0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 8]",
@@ -67,10 +68,9 @@ const reportAttributesOkGet = `
   "request.useragent": "Go-http-client/1.1",
   "request.method": "GET",
   "request.scheme": "http",
+  "request.url_path": "/echo",
   "source.uid": "POD11",
   "source.namespace": "XYZ11",
-  "source.ip": "[127 0 0 1]",
-  "source.port": "*",
   "destination.ip": "[127 0 0 1]",
   "destination.port": "*",
   "target.name": "target-name",
@@ -78,6 +78,7 @@ const reportAttributesOkGet = `
   "target.uid": "POD222",
   "target.namespace": "XYZ222",
   "connection.mtls": false,
+  "origin.ip": "[127 0 0 1]",
   "check.cache_hit": false,
   "quota.cache_hit": false,
   "request.headers": {
@@ -117,15 +118,15 @@ const checkAttributesOkPost = `
   "request.useragent": "Go-http-client/1.1",
   "request.method": "POST",
   "request.scheme": "http",
+  "request.url_path": "/echo",
   "source.uid": "POD11",
   "source.namespace": "XYZ11",
-  "source.ip": "[127 0 0 1]",
-  "source.port": "*",
   "target.name": "target-name",
   "target.user": "target-user",
   "target.uid": "POD222",
   "target.namespace": "XYZ222",
   "connection.mtls": false,
+  "origin.ip": "[127 0 0 1]",
   "request.headers": {
      ":method": "POST",
      ":path": "/echo",
@@ -141,6 +142,7 @@ const checkAttributesOkPost = `
 const reportAttributesOkPost = `
 {
   "context.protocol": "http",
+  "context.proxy_error_code": "-",
   "mesh1.ip": "[1 1 1 1]",
   "mesh2.ip": "[0 0 0 0 0 0 0 0 0 0 255 255 204 152 189 116]",
   "mesh3.ip": "[0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 8]",
@@ -150,10 +152,9 @@ const reportAttributesOkPost = `
   "request.useragent": "Go-http-client/1.1",
   "request.method": "POST",
   "request.scheme": "http",
+  "request.url_path": "/echo",
   "source.uid": "POD11",
   "source.namespace": "XYZ11",
-  "source.ip": "[127 0 0 1]",
-  "source.port": "*",
   "destination.ip": "[127 0 0 1]",
   "destination.port": "*",
   "target.name": "target-name",
@@ -161,6 +162,7 @@ const reportAttributesOkPost = `
   "target.uid": "POD222",
   "target.namespace": "XYZ222",
   "connection.mtls": false,
+  "origin.ip": "[127 0 0 1]",
   "check.cache_hit": false,
   "quota.cache_hit": false,
   "request.headers": {
@@ -226,21 +228,5 @@ func TestCheckReportAttributes(t *testing.T) {
 	s.VerifyCheck(tag, checkAttributesOkPost)
 	s.VerifyReport(tag, reportAttributesOkPost)
 
-	if respStats, err := s.WaitForStatsUpdateAndGetStats(2); err == nil {
-		s.VerifyStats(respStats, expectedStats)
-	} else {
-		t.Errorf("Failed to get stats from Envoy %v", err)
-	}
-
-	// Verify that Mixer HTTP filter works properly when we change config version to V1 at Envoy.
-	s.SetMixerFilterConfVersion(env.MixerFilterConfigV1)
-	s.ReStartEnvoy()
-
-	// Issues a POST request.
-	url = fmt.Sprintf("http://localhost:%d/echo", s.Ports().ClientProxyPort)
-	if _, _, err := env.HTTPPost(url, "text/plain", "Hello World!"); err != nil {
-		t.Errorf("Failed in request %s: %v", tag, err)
-	}
-	s.VerifyCheck(tag, checkAttributesOkPost)
-	s.VerifyReport(tag, reportAttributesOkPost)
+	s.VerifyStats(expectedStats)
 }

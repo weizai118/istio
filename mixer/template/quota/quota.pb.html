@@ -1,19 +1,14 @@
 ---
 title: Quota
-overview: A template that represents a quota allocation request
-location: https://istio.io/docs/reference/config/template/quota.html
+description: A template that represents a quota allocation request.
+location: https://istio.io/docs/reference/config/policy-and-telemetry/templates/quota.html
 layout: protoc-gen-docs
-number_of_entries: 2
+generator: protoc-gen-docs
+aliases:
+  - /docs/reference/config/template/quota.html
+number_of_entries: 1
 ---
 <p>The <code>quota</code> template represents an item for which to check quota.</p>
-
-<h2 id="Template">Template</h2>
-<section>
-<p>The <code>quota</code> template represents a piece of data to check Quota for.</p>
-
-<p>When writing the configuration, the value for the fields associated with this template can either be a
-literal or an <a href="https://istio.io/docs/reference/config/mixer/expression-language.html">expression</a>. Please note that if the datatype of a field is not istio.mixer.adapter.model.v1beta1.Value,
-then the expression&rsquo;s <a href="https://istio.io/docs/reference/config/mixer/expression-language.html#type-checking">inferred type</a> must match the datatype of the field.</p>
 
 <p>Example config:</p>
 
@@ -30,6 +25,14 @@ spec:
     destinationVersion: destination.labels[&quot;version&quot;] | &quot;unknown&quot;
 </code></pre>
 
+<h2 id="Template">Template</h2>
+<section>
+<p>The <code>quota</code> template represents a piece of data to check Quota for.</p>
+
+<p>When writing the configuration, the value for the fields associated with this template can either be a
+literal or an <a href="https://istio.io/docs/reference//config/policy-and-telemetry/expression-language/">expression</a>. Please note that if the datatype of a field is not istio.policy.v1beta1.Value,
+then the expression&rsquo;s <a href="https://istio.io/docs/reference//config/policy-and-telemetry/expression-language/#type-checking">inferred type</a> must match the datatype of the field.</p>
+
 <table class="message-fields">
 <thead>
 <tr>
@@ -39,9 +42,9 @@ spec:
 </tr>
 </thead>
 <tbody>
-<tr id="Template.dimensions">
+<tr id="Template-dimensions">
 <td><code>dimensions</code></td>
-<td><code>map&lt;string,&nbsp;<a href="#istio.mixer.adapter.model.v1beta1.Value">istio.mixer.adapter.model.v1beta1.Value</a>&gt;</code></td>
+<td><code>map&lt;string,&nbsp;<a href="https://istio.io/docs/reference/config/policy-and-telemetry/istio.policy.v1beta1.html#Value">istio.policy.v1beta1.Value</a>&gt;</code></td>
 <td>
 <p>The unique identity of the particular quota to manipulate.</p>
 
@@ -49,10 +52,4 @@ spec:
 </tr>
 </tbody>
 </table>
-</section>
-<h2 id="istio.mixer.adapter.model.v1beta1.Value">istio.mixer.adapter.model.v1beta1.Value</h2>
-<section>
-<p>Value is used inside templates for fields that have dynamic types. The actual datatype
-of the field depends on the datatype of the expression used in the operator configuration.</p>
-
 </section>

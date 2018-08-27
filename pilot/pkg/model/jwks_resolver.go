@@ -16,17 +16,19 @@ package model
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	authn "istio.io/api/authentication/v1alpha1"
 	"istio.io/istio/pkg/cache"
-	"istio.io/istio/pkg/log"
 )
 
 const (
@@ -58,6 +60,14 @@ const (
 	JwtPubKeyRefreshInterval = time.Minute * 20
 )
 
+var (
+	// PublicRootCABundlePath is the path of public root CA bundle in pilot container.
+	publicRootCABundlePath = "/cacert.pem"
+
+	// Close channel
+	close = make(chan bool)
+)
+
 // jwtPubKeyEntry is a single cached entry for jwt public key.
 type jwtPubKeyEntry struct {
 	pubKey string
@@ -74,13 +84,16 @@ type jwksResolver struct {
 	// cache for jwksURI.
 	JwksURICache cache.ExpiringCache
 
+	// Callback function to invoke when detecting jwt public key change.
+	PushFunc func()
+
 	// cache for JWT public key.
 	// map key is jwksURI, map value is jwtPubKeyEntry.
 	keyEntries sync.Map
 
-	client        *http.Client
-	closing       chan bool
-	refreshTicker *time.Ticker
+	secureHTTPClient *http.Client
+	httpClient       *http.Client
+	refreshTicker    *time.Ticker
 
 	expireDuration time.Duration
 
@@ -98,11 +111,10 @@ type jwksResolver struct {
 func newJwksResolver(expireDuration, evictionDuration, refreshInterval time.Duration) *jwksResolver {
 	ret := &jwksResolver{
 		JwksURICache:     cache.NewTTL(jwksURICacheExpiration, jwksURICacheEviction),
-		closing:          make(chan bool, 1),
 		expireDuration:   expireDuration,
 		evictionDuration: evictionDuration,
 		refreshInterval:  refreshInterval,
-		client: &http.Client{
+		httpClient: &http.Client{
 			Timeout: jwksHTTPTimeOutInSec * time.Second,
 
 			// TODO: pilot needs to include a collection of root CAs to make external
@@ -111,6 +123,20 @@ func newJwksResolver(expireDuration, evictionDuration, refreshInterval time.Dura
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
 		},
+	}
+
+	caCert, err := ioutil.ReadFile(publicRootCABundlePath)
+	if err == nil {
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+		ret.secureHTTPClient = &http.Client{
+			Timeout: jwksHTTPTimeOutInSec * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					RootCAs: caCertPool,
+				},
+			},
+		}
 	}
 
 	atomic.StoreUint64(&ret.keyChangedCount, 0)
@@ -173,6 +199,7 @@ func (r *jwksResolver) GetPublicKey(jwksURI string) (string, error) {
 	// Fetch key if it's not cached, or cached item is expired.
 	resp, err := r.getRemoteContent(jwksURI)
 	if err != nil {
+		log.Errorf("Failed to fetch pubkey from %q: %v", jwksURI, err)
 		return "", err
 	}
 
@@ -196,6 +223,7 @@ func (r *jwksResolver) resolveJwksURIUsingOpenID(issuer string) (string, error) 
 	// Try to get jwks_uri through OpenID Discovery.
 	body, err := r.getRemoteContent(issuer + openIDDiscoveryCfgURLSuffix)
 	if err != nil {
+		log.Errorf("Failed to fetch jwks_uri from %q: %v", issuer+openIDDiscoveryCfgURLSuffix, err)
 		return "", err
 	}
 	var data map[string]interface{}
@@ -214,8 +242,24 @@ func (r *jwksResolver) resolveJwksURIUsingOpenID(issuer string) (string, error) 
 	return jwksURI, nil
 }
 
-func (r *jwksResolver) getRemoteContent(url string) ([]byte, error) {
-	resp, err := r.client.Get(url)
+func (r *jwksResolver) getRemoteContent(uri string) ([]byte, error) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		log.Errorf("Failed to parse %q", uri)
+		return nil, err
+	}
+
+	client := r.httpClient
+	if strings.EqualFold(u.Scheme, "https") {
+		// https client may be uninitialized because of root CA bundle missing.
+		if r.secureHTTPClient == nil {
+			return nil, fmt.Errorf("pilot does not support fetch public key through https endpoint %q", uri)
+		}
+
+		client = r.secureHTTPClient
+	}
+
+	resp, err := client.Get(uri)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +268,7 @@ func (r *jwksResolver) getRemoteContent(url string) ([]byte, error) {
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("unsuccessful response from %q", url)
+		return nil, fmt.Errorf("unsuccessful response from %q", uri)
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
@@ -237,14 +281,14 @@ func (r *jwksResolver) getRemoteContent(url string) ([]byte, error) {
 
 func (r *jwksResolver) refresher() {
 	// Wake up once in a while and refresh stale items.
+	//Write
 	r.refreshTicker = time.NewTicker(r.refreshInterval)
 	for {
 		select {
 		case now := <-r.refreshTicker.C:
 			r.refresh(now)
-		case <-r.closing:
+		case <-close:
 			r.refreshTicker.Stop()
-			return
 		}
 	}
 }
@@ -277,7 +321,7 @@ func (r *jwksResolver) refresh(t time.Time) {
 
 				resp, err := r.getRemoteContent(jwksURI)
 				if err != nil {
-					log.Errorf("Cannot fetch JWT public key from %q", jwksURI)
+					log.Errorf("Cannot fetch JWT public key from %q, %v", jwksURI, err)
 					r.keyEntries.Delete(jwksURI)
 					return
 				}
@@ -303,7 +347,10 @@ func (r *jwksResolver) refresh(t time.Time) {
 
 	if hasChange {
 		atomic.AddUint64(&r.keyChangedCount, 1)
-		// TODO(quanlin): send notification to update config and push config to sidecar.
+		// Push public key changes to sidecars.
+		if r.PushFunc != nil {
+			r.PushFunc()
+		}
 	}
 }
 
@@ -311,5 +358,5 @@ func (r *jwksResolver) refresh(t time.Time) {
 // TODO: may need to figure out the right place to call this function.
 // (right now calls it from initDiscoveryService in pkg/bootstrap/server.go).
 func (r *jwksResolver) Close() {
-	r.closing <- true
+	close <- true
 }

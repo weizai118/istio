@@ -25,20 +25,23 @@ import (
 )
 
 type (
+	namedEncoderFn func(data interface{}) ([]byte, error)
+
 	// Encoder transforms yaml that represents protobuf data into []byte
 	Encoder struct {
-		resolver Resolver
+		resolver     Resolver
+		namedEncoder map[string]namedEncoderFn
 	}
 )
 
 // NewEncoder creates an Encoder
 func NewEncoder(fds *descriptor.FileDescriptorSet) *Encoder {
 	resolver := NewResolver(fds)
-	return &Encoder{resolver: resolver}
+	return &Encoder{resolver: resolver, namedEncoder: namedEncoderRegistry}
 }
 
 // EncodeBytes creates []byte from a yaml representation of a proto.
-func (e *Encoder) EncodeBytes(data map[interface{}]interface{}, msgName string, skipUnknown bool) ([]byte, error) {
+func (e *Encoder) EncodeBytes(data map[string]interface{}, msgName string, skipUnknown bool) ([]byte, error) {
 	buf := GetBuffer()
 	defer func() { PutBuffer(buf) }()
 
@@ -47,7 +50,7 @@ func (e *Encoder) EncodeBytes(data map[interface{}]interface{}, msgName string, 
 		return nil, fmt.Errorf("cannot resolve message '%s'", msgName)
 	}
 	for k, v := range data {
-		fd := FindFieldByName(message, k.(string))
+		fd := FindFieldByName(message, k)
 		if fd == nil {
 			if skipUnknown {
 				continue
@@ -55,10 +58,9 @@ func (e *Encoder) EncodeBytes(data map[interface{}]interface{}, msgName string, 
 			return nil, fmt.Errorf("field '%s' not found in message '%s'", k, message.GetName())
 		}
 
-		if err := e.visit(k.(string), v, fd, skipUnknown, buf); err != nil {
+		if err := e.visit(k, v, fd, skipUnknown, buf); err != nil {
 			return nil, err
 		}
-
 	}
 	return buf.Bytes(), nil
 }
@@ -776,7 +778,7 @@ func (e *Encoder) visit(name string, data interface{}, field *descriptor.FieldDe
 			mapInfo := e.mapType(field)
 			keyType := typeName(mapInfo.KeyField)
 			valType := typeName(mapInfo.ValueField)
-			v, ok := data.(map[interface{}]interface{})
+			v, ok := data.(map[string]interface{})
 			if !ok {
 				return badTypeError(name, fmt.Sprintf("map<%s, %s>", keyType, valType), data)
 			}
@@ -790,7 +792,7 @@ func (e *Encoder) visit(name string, data interface{}, field *descriptor.FieldDe
 
 			// So, we can create a map[key_type]value_type and use it to encode the MapEntry, repeatedly.
 			for key, val := range v {
-				tmpMapEntry := make(map[interface{}]interface{}, 2)
+				tmpMapEntry := make(map[string]interface{}, 2)
 				tmpMapEntry["key"] = key
 				tmpMapEntry["value"] = val
 				bytes, err := e.EncodeBytes(tmpMapEntry, field.GetTypeName(), skipUnknown)
@@ -823,7 +825,7 @@ func (e *Encoder) visit(name string, data interface{}, field *descriptor.FieldDe
 			}
 
 			for i, iface := range v {
-				c, ok := iface.(map[interface{}]interface{})
+				c, ok := iface.(map[string]interface{})
 				if !ok {
 					return badTypeError(fmt.Sprintf("%s[%d]", name, i), tName, iface)
 				}
@@ -846,15 +848,24 @@ func (e *Encoder) visit(name string, data interface{}, field *descriptor.FieldDe
 			//		return 0, err
 			//	}
 			//	i += n1
-			v, ok := data.(map[interface{}]interface{})
-			if !ok {
-				return badTypeError(name, strings.TrimPrefix(field.GetTypeName(), "."), data)
+			var bytes []byte
+			var err error
+			ne := e.namedEncoder[field.GetTypeName()]
+			if ne != nil {
+				bytes, err = ne(data)
+			} else {
+				v, ok := data.(map[string]interface{})
+				if !ok {
+					return badTypeError(name, strings.TrimPrefix(field.GetTypeName(), "."), data)
+				}
+
+				bytes, err = e.EncodeBytes(v, field.GetTypeName(), skipUnknown)
 			}
 
-			bytes, err := e.EncodeBytes(v, field.GetTypeName(), skipUnknown)
 			if err != nil {
 				return fmt.Errorf("/%s: '%v'", name, err)
 			}
+
 			_ = buffer.EncodeVarint(encodeIndexAndType(fieldNumber, wireType))
 			_ = buffer.EncodeRawBytes(bytes)
 

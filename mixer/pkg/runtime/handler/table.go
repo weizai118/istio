@@ -15,9 +15,18 @@
 package handler
 
 import (
+	"context"
+	"strconv"
+
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
+
 	"istio.io/istio/mixer/pkg/adapter"
 	"istio.io/istio/mixer/pkg/pool"
+	"istio.io/istio/mixer/pkg/protobuf/yaml/dynamic"
 	"istio.io/istio/mixer/pkg/runtime/config"
+	"istio.io/istio/mixer/pkg/runtime/monitoring"
+	"istio.io/istio/mixer/pkg/runtime/safecall"
 	"istio.io/istio/pkg/log"
 )
 
@@ -25,7 +34,7 @@ import (
 type Table struct {
 	entries map[string]Entry
 
-	counters tableCounters
+	monitoringCtx context.Context
 }
 
 // Entry in the handler table.
@@ -36,8 +45,8 @@ type Entry struct {
 	// Handler is the initialized Handler object.
 	Handler adapter.Handler
 
-	// Adapter that was used to create this Entry.
-	Adapter *adapter.Info
+	// AdapterName that was used to create this Entry.
+	AdapterName string
 
 	// Signature of the configuration used to create this entry.
 	Signature signature
@@ -49,58 +58,86 @@ type Entry struct {
 // NewTable returns a new table, based on the given config snapshot. The table will re-use existing handlers as much as
 // possible from the old table.
 func NewTable(old *Table, snapshot *config.Snapshot, gp *pool.GoroutinePool) *Table {
-	var f *factory
-
 	// Find all handlers, as referenced by instances, and associate to handlers.
 	instancesByHandler := config.GetInstancesGroupedByHandlers(snapshot)
+	instancesByHandlerDynamic := config.GetInstancesGroupedByHandlersDynamic(snapshot)
+
+	var err error
+	ctx := context.Background()
+	if ctx, err = tag.New(ctx, tag.Insert(monitoring.ConfigIDTag, strconv.FormatInt(snapshot.ID, 10))); err != nil {
+		log.Errorf("not able to set context for snapshot: %v", err)
+	}
 
 	t := &Table{
-		entries:  make(map[string]Entry, len(instancesByHandler)),
-		counters: newTableCounters(snapshot.ID),
+		entries:       make(map[string]Entry, len(instancesByHandler)+len(instancesByHandlerDynamic)),
+		monitoringCtx: ctx,
 	}
 
 	for handler, instances := range instancesByHandler {
-		sig := calculateSignature(handler, instances)
-
-		currentEntry, found := old.entries[handler.Name]
-		if found && currentEntry.Signature.equals(sig) {
-			// reuse the Handler
-			t.entries[handler.Name] = currentEntry
-			t.counters.reusedHandlers.Inc()
-			continue
-		}
-
-		// instantiate the new Handler
-		if f == nil {
-			f = newFactory(snapshot)
-		}
-
-		e := newEnv(snapshot.ID, handler.Name, gp)
-		instantiatedHandler, err := f.build(handler, instances, e)
-
-		if err != nil {
-			t.counters.buildFailure.Inc()
-
-			log.Errorf(
-				"Unable to initialize adapter: snapshot='%d', handler='%s', adapter='%s', err='%s'.\n"+
-					"Please remove the handler or fix the configuration.",
-				snapshot.ID, handler.Name, handler.Adapter.Name, err.Error())
-
-			continue
-		}
-
-		t.counters.newHandlers.Inc()
-
-		t.entries[handler.Name] = Entry{
-			Name:      handler.Name,
-			Handler:   instantiatedHandler,
-			Adapter:   handler.Adapter,
-			Signature: sig,
-			env:       e,
-		}
+		createEntry(old, t, handler, instances, snapshot.ID,
+			func(handler hndlr, instances interface{}) (h adapter.Handler, e env, err error) {
+				e = NewEnv(snapshot.ID, handler.GetName(), gp).(env)
+				h, err = config.BuildHandler(handler.(*config.HandlerStatic), instances.([]*config.InstanceStatic),
+					e, snapshot.Templates)
+				return h, e, err
+			})
 	}
 
+	for handler, instances := range instancesByHandlerDynamic {
+		createEntry(old, t, handler, instances, snapshot.ID,
+			func(_ hndlr, _ interface{}) (h adapter.Handler, e env, err error) {
+				e = NewEnv(snapshot.ID, handler.GetName(), gp).(env)
+				tmplCfg := make([]*dynamic.TemplateConfig, 0, len(instances))
+				for _, inst := range instances {
+					tmplCfg = append(tmplCfg, &dynamic.TemplateConfig{
+						Name:         inst.Name,
+						TemplateName: inst.Template.Name,
+						FileDescSet:  inst.Template.FileDescSet,
+						Variety:      inst.Template.Variety,
+					})
+				}
+				h, err = dynamic.BuildHandler(handler.GetName(), handler.Connection,
+					handler.Adapter.SessionBased, handler.AdapterConfig, tmplCfg)
+				return h, e, err
+			})
+	}
 	return t
+}
+
+type buildHandlerFn func(handler hndlr, instances interface{}) (h adapter.Handler, env env, err error)
+
+func createEntry(old *Table, t *Table, handler hndlr, instances interface{}, snapshotID int64, buildHandler buildHandlerFn) {
+
+	sig := calculateSignature(handler, instances)
+
+	currentEntry, found := old.entries[handler.GetName()]
+	if found && currentEntry.Signature.equals(sig) {
+		// reuse the Handler
+		t.entries[handler.GetName()] = currentEntry
+		stats.Record(t.monitoringCtx, monitoring.ReusedHandlersTotal.M(1))
+		return
+	}
+
+	instantiatedHandler, e, err := buildHandler(handler, instances)
+
+	if err != nil {
+		stats.Record(t.monitoringCtx, monitoring.BuildFailuresTotal.M(1))
+		log.Errorf(
+			"Unable to initialize adapter: snapshot='%d', handler='%s', adapter='%s', err='%s'.\n"+
+				"Please remove the handler or fix the configuration.",
+			snapshotID, handler.GetName(), handler.AdapterName(), err.Error())
+		return
+	}
+
+	stats.Record(t.monitoringCtx, monitoring.NewHandlersTotal.M(1))
+
+	t.entries[handler.GetName()] = Entry{
+		Name:        handler.GetName(),
+		Handler:     instantiatedHandler,
+		AdapterName: handler.AdapterName(),
+		Signature:   sig,
+		env:         e,
+	}
 }
 
 // Cleanup the old table by selectively closing handlers that are not used in the given table.
@@ -123,9 +160,9 @@ func (t *Table) Cleanup(current *Table) {
 
 	for _, entry := range toCleanup {
 		log.Debugf("Closing adapter %s/%v", entry.Name, entry.Handler)
-		t.counters.closedHandlers.Inc()
+		stats.Record(t.monitoringCtx, monitoring.ClosedHandlersTotal.M(1))
 		var err error
-		panicErr := safeCall("handler.Close", func() {
+		panicErr := safecall.Execute("handler.Close", func() {
 			err = entry.Handler.Close()
 		})
 
@@ -139,7 +176,7 @@ func (t *Table) Cleanup(current *Table) {
 		}
 
 		if err != nil {
-			t.counters.closeFailure.Inc()
+			stats.Record(t.monitoringCtx, monitoring.CloseFailuresTotal.M(1))
 			log.Warnf("Error closing adapter: %s/%v: '%v'", entry.Name, entry.Handler, err)
 		}
 	}

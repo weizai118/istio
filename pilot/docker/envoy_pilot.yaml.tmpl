@@ -82,13 +82,27 @@ static_resources:
 {{- end }}
                   mixer_attributes:
                     attributes:
-                      destination.service:
+                      destination.service.host:
                         string_value: istio-pilot.{{ .PodNamespace }}.svc.cluster.local
                       destination.uid:
+                        string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                      destination.namespace:
+                        string_value: {{.PodNamespace }}
+                      destination.ip:
+                        bytes_value: {{ .PodIP }}
+                      destination.port:
+                        int64_value: 15003
+                      context.reporter.kind:
+                        string_value: inbound
+                      context.reporter.uid:
                         string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
               transport:
                 check_cluster: mixer_check_server
                 report_cluster: mixer_report_server
+                attributes_for_mixer_proxy:
+                  attributes:
+                    source.uid:
+                      string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
             name: mixer
           - name: envoy.router
           route_config:
@@ -148,13 +162,27 @@ static_resources:
 {{- end }}
                   mixer_attributes:
                     attributes:
-                      destination.service:
+                      destination.service.host:
                         string_value: istio-pilot.{{ .PodNamespace }}.svc.cluster.local
                       destination.uid:
+                        string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                      destination.namespace:
+                        string_value: {{.PodNamespace }}
+                      destination.ip:
+                        bytes_value: {{ .PodIP }}
+                      destination.port:
+                        int64_value: 15011
+                      context.reporter.kind:
+                        string_value: inbound
+                      context.reporter.uid:
                         string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
               transport:
                 check_cluster: mixer_check_server
                 report_cluster: mixer_report_server
+                attributes_for_mixer_proxy:
+                  attributes:
+                    source.uid:
+                      string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
             name: mixer
           - name: envoy.router
           route_config:
@@ -173,7 +201,6 @@ static_resources:
                   timeout: 0.000s
           stat_prefix: "15011"
         name: envoy.http_connection_manager
-{{- if .ControlPlaneAuth }}
       tls_context:
         common_tls_context:
           alpn_protocols:
@@ -187,7 +214,6 @@ static_resources:
             trusted_ca:
               filename: /etc/certs/root-cert.pem
         require_client_certificate: true
-{{- end }}
     name: "15011"
   - address:
       socket_address:
@@ -211,13 +237,27 @@ static_resources:
 {{- end }}
                   mixer_attributes:
                     attributes:
-                      destination.service:
+                      destination.service.host:
                         string_value: istio-pilot.{{ .PodNamespace }}.svc.cluster.local
                       destination.uid:
+                        string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                      destination.namespace:
+                        string_value: {{.PodNamespace }}
+                      destination.ip:
+                        bytes_value: {{ .PodIP }}
+                      destination.port:
+                        int64_value: 15005
+                      context.reporter.kind:
+                        string_value: inbound
+                      context.reporter.uid:
                         string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
               transport:
                 check_cluster: mixer_check_server
                 report_cluster: mixer_report_server
+                attributes_for_mixer_proxy:
+                  attributes:
+                    source.uid:
+                      string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
             name: mixer
           - name: envoy.router
           route_config:
@@ -272,13 +312,27 @@ static_resources:
 {{- end }}
                   mixer_attributes:
                     attributes:
-                      destination.service:
+                      destination.service.host:
                         string_value: istio-pilot.{{ .PodNamespace }}.svc.cluster.local
                       destination.uid:
+                        string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
+                      destination.namespace:
+                        string_value: {{.PodNamespace }}
+                      destination.ip:
+                        bytes_value: {{ .PodIP }}
+                      destination.port:
+                        int64_value: 15007
+                      context.reporter.kind:
+                        string_value: inbound
+                      context.reporter.uid:
                         string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
               transport:
                 check_cluster: mixer_check_server
                 report_cluster: mixer_report_server
+                attributes_for_mixer_proxy:
+                  attributes:
+                    source.uid:
+                      string_value: kubernetes://{{ .PodName }}.{{ .PodNamespace }}
             name: mixer
           - name: envoy.router
           route_config:

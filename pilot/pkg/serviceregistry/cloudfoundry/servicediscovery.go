@@ -18,19 +18,23 @@ import (
 	"fmt"
 
 	copilotapi "code.cloudfoundry.org/copilot/api"
-	"golang.org/x/net/context"
 
 	"istio.io/istio/pilot/pkg/model"
 )
 
-// CopilotClient defines a local interface for interacting with Cloud Foundry Copilot
-type CopilotClient interface {
-	copilotapi.IstioCopilotClient
+const (
+	cfLabel = "cfapp"
+)
+
+//go:generate $GOPATH/src/istio.io/istio/bin/counterfeiter.sh -o ./fakes/route_cacher.go --fake-name RouteCacher . routeCacher
+type routeCacher interface {
+	Get() (*copilotapi.RoutesResponse, error)
+	GetInternal() (*copilotapi.InternalRoutesResponse, error)
 }
 
 // ServiceDiscovery implements the model.ServiceDiscovery interface for Cloud Foundry
 type ServiceDiscovery struct {
-	Client CopilotClient
+	RoutesRepo routeCacher
 
 	// Cloud Foundry currently only supports applications exposing a single HTTP or TCP port
 	// It is typically 8080
@@ -39,19 +43,50 @@ type ServiceDiscovery struct {
 
 // Services implements a service catalog operation
 func (sd *ServiceDiscovery) Services() ([]*model.Service, error) {
-	resp, err := sd.Client.Routes(context.Background(), new(copilotapi.RoutesRequest))
+	resp, err := sd.RoutesRepo.Get()
 	if err != nil {
 		return nil, fmt.Errorf("getting services: %s", err)
 	}
-	services := make([]*model.Service, 0, len(resp.GetBackends()))
+	services := make([]*model.Service, 0, len(resp.GetRoutes()))
 
 	port := sd.servicePort()
-	for hostname := range resp.Backends {
+	for _, route := range resp.GetRoutes() {
+		hostname := model.Hostname(route.Hostname)
 		services = append(services, &model.Service{
 			Hostname:     hostname,
 			Ports:        []*model.Port{port},
 			MeshExternal: false,
 			Resolution:   model.ClientSideLB,
+			Attributes: model.ServiceAttributes{
+				Name:      string(hostname),
+				Namespace: model.IstioDefaultConfigNamespace,
+			},
+		})
+	}
+
+	internalRoutesResp, err := sd.RoutesRepo.GetInternal()
+	if err != nil {
+		return nil, fmt.Errorf("getting services: %s", err)
+	}
+
+	internalRouteServicePort := &model.Port{
+		Port:     sd.ServicePort,
+		Protocol: model.ProtocolTCP,
+		Name:     "tcp",
+	}
+
+	for _, internalRoute := range internalRoutesResp.GetInternalRoutes() {
+		hostname := model.Hostname((internalRoute.Hostname))
+		services = append(services, &model.Service{
+			Hostname:     hostname,
+			Address:      internalRoute.Vip,
+			Ports:        []*model.Port{internalRouteServicePort},
+			MeshExternal: false,
+			Resolution:   model.ClientSideLB,
+			Attributes: model.ServiceAttributes{
+				Name:      string(hostname),
+				Namespace: model.IstioDefaultConfigNamespace,
+			},
 		})
 	}
 
@@ -59,7 +94,7 @@ func (sd *ServiceDiscovery) Services() ([]*model.Service, error) {
 }
 
 // GetService implements a service catalog operation
-func (sd *ServiceDiscovery) GetService(hostname string) (*model.Service, error) {
+func (sd *ServiceDiscovery) GetService(hostname model.Hostname) (*model.Service, error) {
 	services, err := sd.Services()
 	if err != nil {
 		return nil, err
@@ -72,33 +107,94 @@ func (sd *ServiceDiscovery) GetService(hostname string) (*model.Service, error) 
 	return nil, nil
 }
 
-// Instances implements a service catalog operation
-func (sd *ServiceDiscovery) Instances(hostname string, ports []string, tagsList model.LabelsCollection) ([]*model.ServiceInstance, error) {
-	resp, err := sd.Client.Routes(context.Background(), new(copilotapi.RoutesRequest))
+// InstancesByPort implements a service catalog operation
+func (sd *ServiceDiscovery) InstancesByPort(hostname model.Hostname, _ int, labels model.LabelsCollection) ([]*model.ServiceInstance, error) {
+	resp, err := sd.RoutesRepo.Get()
 	if err != nil {
-		return nil, fmt.Errorf("getting instances: %s", err)
+		return nil, fmt.Errorf("getting routes: %s", err)
 	}
-	instances := make([]*model.ServiceInstance, 0, len(resp.GetBackends()))
-	backendSet, ok := resp.Backends[hostname]
-	if !ok {
-		return nil, nil
-	}
-	for _, backend := range backendSet.GetBackends() {
-		port := sd.servicePort()
 
-		instances = append(instances, &model.ServiceInstance{
-			Endpoint: model.NetworkEndpoint{
-				Address:     backend.Address,
-				Port:        int(backend.Port),
-				ServicePort: port,
-			},
-			Service: &model.Service{
-				Hostname:     hostname,
-				Ports:        []*model.Port{port},
-				MeshExternal: false,
-				Resolution:   model.ClientSideLB,
-			},
-		})
+	instances := make([]*model.ServiceInstance, 0)
+	var matchedRoutes []*copilotapi.RouteWithBackends
+	for _, route := range resp.GetRoutes() {
+		if route.Hostname == string(hostname) {
+			matchedRoutes = append(matchedRoutes, route)
+		}
+	}
+
+	for _, matchedRoute := range matchedRoutes {
+		backends := matchedRoute.GetBackends()
+		if backends == nil {
+			continue
+		}
+
+		for _, backend := range backends.GetBackends() {
+			port := sd.servicePort()
+
+			inst := &model.ServiceInstance{
+				Endpoint: model.NetworkEndpoint{
+					Address:     backend.Address,
+					Port:        int(backend.Port),
+					ServicePort: port,
+				},
+				Service: &model.Service{
+					Hostname:     hostname,
+					Ports:        []*model.Port{port},
+					MeshExternal: false,
+					Resolution:   model.ClientSideLB,
+					Attributes: model.ServiceAttributes{
+						Name:      string(hostname),
+						Namespace: model.IstioDefaultConfigNamespace,
+					},
+				},
+			}
+
+			inst.Labels = model.Labels{cfLabel: matchedRoute.GetCapiProcessGuid()}
+
+			for _, label := range labels {
+				if v, ok := label[cfLabel]; ok {
+					if v == matchedRoute.GetCapiProcessGuid() {
+						instances = append(instances, inst)
+					}
+				}
+			}
+		}
+	}
+
+	internalRoutesResp, err := sd.RoutesRepo.GetInternal()
+	if err != nil {
+		return nil, fmt.Errorf("getting internal routes: %s", err)
+	}
+
+	internalRouteServicePort := &model.Port{
+		Port:     sd.ServicePort,
+		Protocol: model.ProtocolTCP,
+		Name:     "tcp",
+	}
+
+	for _, internalRoute := range internalRoutesResp.GetInternalRoutes() {
+		for _, backend := range internalRoute.GetBackends().Backends {
+			if internalRoute.Hostname == string(hostname) {
+				instances = append(instances, &model.ServiceInstance{
+					Endpoint: model.NetworkEndpoint{
+						Address:     backend.Address,
+						Port:        int(backend.Port),
+						ServicePort: internalRouteServicePort,
+					},
+					Service: &model.Service{
+						Hostname:     hostname,
+						Address:      internalRoute.Vip,
+						Ports:        []*model.Port{internalRouteServicePort},
+						MeshExternal: false,
+						Resolution:   model.ClientSideLB,
+						Attributes: model.ServiceAttributes{
+							Name:      string(hostname),
+							Namespace: model.IstioDefaultConfigNamespace,
+						},
+					},
+				})
+			}
+		}
 	}
 
 	return instances, nil
@@ -113,6 +209,11 @@ func (sd *ServiceDiscovery) GetProxyServiceInstances(proxy *model.Proxy) ([]*mod
 
 // ManagementPorts is not currently implemented for Cloud Foundry
 func (sd *ServiceDiscovery) ManagementPorts(addr string) model.PortList {
+	return nil
+}
+
+// WorkloadHealthCheckInfo is not currently implemented for Cloud Foundry
+func (sd *ServiceDiscovery) WorkloadHealthCheckInfo(addr string) model.ProbeList {
 	return nil
 }
 

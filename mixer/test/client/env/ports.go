@@ -33,6 +33,7 @@ const (
 	DisableTCPCheckCallsTest
 	FailedRequestTest
 	FaultInjectTest
+	GlobalDictionaryTest
 	JWTAuthTest
 	MixerInternalFailTest
 	NetworkFailureTest
@@ -41,8 +42,21 @@ const (
 	ReportBatchTest
 	TCPMixerFilterPeriodicalReportTest
 	TCPMixerFilterTest
-	TCPMixerFilterV1ConfigTest
 	XDSTest
+	CheckReportIstioAuthnAttributesTestOriginJwtBoundToOrigin
+	CheckReportIstioAuthnAttributesTestOriginJwtBoundToPeer
+	CheckReportIstioAuthnAttributesTestPeerJwtBoundToPeer
+	CheckReportIstioAuthnAttributesTestPeerJwtBoundToOrigin
+	IstioAuthnTestOriginRejectNoJwt
+	IstioAuthnTestPeerRejectNoJwt
+	IstioAuthnTestPeerRejectNoMtls
+	IstioAuthnTestPeerRejectNoTLS
+	RouteDirectiveTest
+	DynamicAttributeTest
+	DynamicListenerTest
+	PilotPluginTest
+	PilotPluginTCPTest
+	PilotPluginTLSTest
 
 	// The number of total tests. has to be the last one.
 	maxTestNum
@@ -51,7 +65,7 @@ const (
 const (
 	portBase uint16 = 20000
 	// Maximum number of ports used in each test.
-	portNum uint16 = 6
+	portNum uint16 = 7
 	// Number of ports used by Envoy in each test.
 	envoyPortNum uint16 = 4
 )
@@ -64,6 +78,7 @@ type Ports struct {
 	AdminPort       uint16
 	MixerPort       uint16
 	BackendPort     uint16
+	DiscoveryPort   uint16
 
 	// Pilot ports, used when testing mixer-pilot integration.
 	PilotGrpcPort uint16
@@ -114,6 +129,7 @@ func NewPorts(name uint16) *Ports {
 		AdminPort:       base + 3,
 		MixerPort:       base + 4,
 		BackendPort:     base + 5,
+		DiscoveryPort:   base + 6,
 	}
 }
 
@@ -127,5 +143,6 @@ func NewEnvoyPorts(ports *Ports, name uint16) *Ports {
 		AdminPort:       base + 3,
 		MixerPort:       ports.MixerPort,
 		BackendPort:     ports.BackendPort,
+		DiscoveryPort:   ports.DiscoveryPort,
 	}
 }

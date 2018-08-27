@@ -111,7 +111,13 @@ func (m *SocketAddress) Validate() error {
 	switch m.PortSpecifier.(type) {
 
 	case *SocketAddress_PortValue:
-		// no validation rules for PortValue
+
+		if m.GetPortValue() > 65535 {
+			return SocketAddressValidationError{
+				Field:  "PortValue",
+				Reason: "value must be less than or equal to 65535",
+			}
+		}
 
 	case *SocketAddress_NamedPort:
 		// no validation rules for NamedPort
@@ -158,6 +164,84 @@ func (e SocketAddressValidationError) Error() string {
 
 var _ error = SocketAddressValidationError{}
 
+// Validate checks the field values on TcpKeepalive with the rules defined in
+// the proto definition for this message. If any rules are violated, an error
+// is returned.
+func (m *TcpKeepalive) Validate() error {
+	if m == nil {
+		return nil
+	}
+
+	if v, ok := interface{}(m.GetKeepaliveProbes()).(interface {
+		Validate() error
+	}); ok {
+		if err := v.Validate(); err != nil {
+			return TcpKeepaliveValidationError{
+				Field:  "KeepaliveProbes",
+				Reason: "embedded message failed validation",
+				Cause:  err,
+			}
+		}
+	}
+
+	if v, ok := interface{}(m.GetKeepaliveTime()).(interface {
+		Validate() error
+	}); ok {
+		if err := v.Validate(); err != nil {
+			return TcpKeepaliveValidationError{
+				Field:  "KeepaliveTime",
+				Reason: "embedded message failed validation",
+				Cause:  err,
+			}
+		}
+	}
+
+	if v, ok := interface{}(m.GetKeepaliveInterval()).(interface {
+		Validate() error
+	}); ok {
+		if err := v.Validate(); err != nil {
+			return TcpKeepaliveValidationError{
+				Field:  "KeepaliveInterval",
+				Reason: "embedded message failed validation",
+				Cause:  err,
+			}
+		}
+	}
+
+	return nil
+}
+
+// TcpKeepaliveValidationError is the validation error returned by
+// TcpKeepalive.Validate if the designated constraints aren't met.
+type TcpKeepaliveValidationError struct {
+	Field  string
+	Reason string
+	Cause  error
+	Key    bool
+}
+
+// Error satisfies the builtin error interface
+func (e TcpKeepaliveValidationError) Error() string {
+	cause := ""
+	if e.Cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.Cause)
+	}
+
+	key := ""
+	if e.Key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTcpKeepalive.%s: %s%s",
+		key,
+		e.Field,
+		e.Reason,
+		cause)
+}
+
+var _ error = TcpKeepaliveValidationError{}
+
 // Validate checks the field values on BindConfig with the rules defined in the
 // proto definition for this message. If any rules are violated, an error is returned.
 func (m *BindConfig) Validate() error {
@@ -165,7 +249,9 @@ func (m *BindConfig) Validate() error {
 		return nil
 	}
 
-	if v, ok := interface{}(m.GetSourceAddress()).(interface{ Validate() error }); ok {
+	if v, ok := interface{}(m.GetSourceAddress()).(interface {
+		Validate() error
+	}); ok {
 		if err := v.Validate(); err != nil {
 			return BindConfigValidationError{
 				Field:  "SourceAddress",
@@ -175,7 +261,9 @@ func (m *BindConfig) Validate() error {
 		}
 	}
 
-	if v, ok := interface{}(m.GetFreebind()).(interface{ Validate() error }); ok {
+	if v, ok := interface{}(m.GetFreebind()).(interface {
+		Validate() error
+	}); ok {
 		if err := v.Validate(); err != nil {
 			return BindConfigValidationError{
 				Field:  "Freebind",
@@ -183,6 +271,23 @@ func (m *BindConfig) Validate() error {
 				Cause:  err,
 			}
 		}
+	}
+
+	for idx, item := range m.GetSocketOptions() {
+		_, _ = idx, item
+
+		if v, ok := interface{}(item).(interface {
+			Validate() error
+		}); ok {
+			if err := v.Validate(); err != nil {
+				return BindConfigValidationError{
+					Field:  fmt.Sprintf("SocketOptions[%v]", idx),
+					Reason: "embedded message failed validation",
+					Cause:  err,
+				}
+			}
+		}
+
 	}
 
 	return nil
@@ -230,7 +335,9 @@ func (m *Address) Validate() error {
 
 	case *Address_SocketAddress:
 
-		if v, ok := interface{}(m.GetSocketAddress()).(interface{ Validate() error }); ok {
+		if v, ok := interface{}(m.GetSocketAddress()).(interface {
+			Validate() error
+		}); ok {
 			if err := v.Validate(); err != nil {
 				return AddressValidationError{
 					Field:  "SocketAddress",
@@ -242,7 +349,9 @@ func (m *Address) Validate() error {
 
 	case *Address_Pipe:
 
-		if v, ok := interface{}(m.GetPipe()).(interface{ Validate() error }); ok {
+		if v, ok := interface{}(m.GetPipe()).(interface {
+			Validate() error
+		}); ok {
 			if err := v.Validate(); err != nil {
 				return AddressValidationError{
 					Field:  "Pipe",

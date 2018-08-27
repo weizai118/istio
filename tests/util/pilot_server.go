@@ -15,19 +15,21 @@
 package util
 
 import (
-	"bytes"
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
+	"github.com/gogo/protobuf/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"istio.io/istio/pilot/pkg/bootstrap"
-	envoy "istio.io/istio/pilot/pkg/proxy/envoy/v1"
+	"istio.io/istio/pilot/pkg/proxy/envoy"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 )
 
@@ -54,8 +56,7 @@ var (
 	// MockPilotGrpcPort is the dynamic port for pilot grpc
 	MockPilotGrpcPort int
 
-	fsRoot string
-	stop   chan struct{}
+	stop chan struct{}
 )
 
 var (
@@ -70,14 +71,6 @@ var (
 
 	// IstioOut is the location of the output directory ($TOP/out)
 	IstioOut = os.Getenv("ISTIO_OUT")
-
-	// EnvoyOutWriter captures envoy output
-	// Redirect out and err from envoy to buffer - coverage tests get confused if we write to out.
-	// TODO: use files
-	EnvoyOutWriter bytes.Buffer
-
-	// EnvoyErrWriter captures envoy errors
-	EnvoyErrWriter bytes.Buffer
 )
 
 func init() {
@@ -87,6 +80,8 @@ func init() {
 		idx := strings.Index(current, "/src/istio.io/istio")
 		if idx > 0 {
 			IstioTop = current[0:idx]
+		} else {
+			IstioTop = current // launching from GOTOP (for example in goland)
 		}
 	}
 	if IstioSrc == "" {
@@ -126,13 +121,13 @@ func setup() error {
 	if len(pilotHTTP) == 0 {
 		pilotHTTP = "0"
 	}
-	pilotHTTPPort, _ := strconv.Atoi(pilotHTTP)
+	httpAddr := ":" + pilotHTTP
 
 	// Create a test pilot discovery service configured to watch the tempDir.
 	args := bootstrap.PilotArgs{
 		Namespace: "testing",
 		DiscoveryOptions: envoy.DiscoveryServiceOptions{
-			Port:            pilotHTTPPort,
+			HTTPAddr:        httpAddr,
 			GrpcAddr:        ":0",
 			SecureGrpcAddr:  ":0",
 			EnableCaching:   true,
@@ -141,7 +136,7 @@ func setup() error {
 		//TODO: start mixer first, get its address
 		Mesh: bootstrap.MeshArgs{
 			MixerAddress:    "istio-mixer.istio-system:9091",
-			RdsRefreshDelay: ptypes.DurationProto(10 * time.Millisecond),
+			RdsRefreshDelay: types.DurationProto(10 * time.Millisecond),
 		},
 		Config: bootstrap.ConfigArgs{
 			KubeConfig: IstioSrc + "/.circleci/config",
@@ -153,7 +148,7 @@ func setup() error {
 		},
 	}
 	// Static testdata, should include all configs we want to test.
-	args.Config.FileDir = IstioSrc + "/tests/testdata"
+	args.Config.FileDir = IstioSrc + "/tests/testdata/config"
 
 	bootstrap.PilotCertDir = IstioSrc + "/tests/testdata/certs/pilot"
 
@@ -166,8 +161,7 @@ func setup() error {
 	MockTestServer = s
 
 	// Start the server.
-	_, err = s.Start(stop)
-	if err != nil {
+	if err := s.Start(stop); err != nil {
 		return err
 	}
 
@@ -194,16 +188,19 @@ func setup() error {
 	MockPilotSecurePort, _ = strconv.Atoi(port)
 
 	// Wait a bit for the server to come up.
-	// TODO(nmittler): Change to polling health endpoint once https://github.com/istio/istio/pull/2002 lands.
-	time.Sleep(time.Second)
+	err = wait.Poll(500*time.Millisecond, 5*time.Second, func() (bool, error) {
+		client := &http.Client{Timeout: 1 * time.Second}
+		resp, err := client.Get(MockPilotURL + "/ready")
+		if err != nil {
+			return false, nil
+		}
+		defer resp.Body.Close()
+		ioutil.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusOK {
+			return true, nil
+		}
+		return false, nil
+	})
 
-	return nil
-}
-
-// Teardown will cleanup the temp dir and remove the test data.
-func Teardown() {
-	close(stop)
-
-	// Remove the temp dir.
-	_ = os.RemoveAll(fsRoot)
+	return err
 }

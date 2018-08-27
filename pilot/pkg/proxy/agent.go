@@ -168,6 +168,7 @@ func (a *agent) Run(ctx context.Context) {
 	// High QPS is needed to process messages on all channels.
 	rateLimiter := rate.NewLimiter(1, 10)
 
+	var reconcileTimer *time.Timer
 	for {
 		err := rateLimiter.Wait(ctx)
 		if err != nil {
@@ -180,6 +181,10 @@ func (a *agent) Run(ctx context.Context) {
 		if a.retry.restart != nil {
 			delay = time.Until(*a.retry.restart)
 		}
+		if reconcileTimer != nil {
+			reconcileTimer.Stop()
+		}
+		reconcileTimer = time.NewTimer(delay)
 
 		select {
 		case config := <-a.configCh:
@@ -230,7 +235,7 @@ func (a *agent) Run(ctx context.Context) {
 						log.Infof("Epoch %d: set retry delay to %v, budget to %d", status.epoch, delayDuration, a.retry.budget)
 					} else {
 						log.Error("Permanent error: budget exhausted trying to fulfill the desired configuration")
-						a.proxy.Panic(a.desiredConfig)
+						a.proxy.Panic(status.epoch)
 						return
 					}
 				} else {
@@ -238,7 +243,7 @@ func (a *agent) Run(ctx context.Context) {
 				}
 			}
 
-		case <-time.After(delay):
+		case <-reconcileTimer.C:
 			a.reconcile()
 
 		case _, more := <-ctx.Done():

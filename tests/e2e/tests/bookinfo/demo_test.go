@@ -27,8 +27,13 @@ import (
 	"istio.io/istio/tests/util"
 )
 
+type user struct {
+	username      string
+	sessionCookie string
+}
+
 type userVersion struct {
-	user    string
+	user    user
 	version string
 	model   string
 }
@@ -59,9 +64,7 @@ func TestVersionRouting(t *testing.T) {
 		},
 	}
 
-	for _, configVersion := range tf.ConfigVersions() {
-		testVersionRoutingRules(t, configVersion, rules)
-	}
+	testVersionRoutingRules(t, "v1alpha3", rules)
 }
 
 func testVersionRoutingRules(t *testing.T, configVersion string, rules []versionRoutingRule) {
@@ -75,6 +78,7 @@ func testVersionRoutingRule(t *testing.T, configVersion string, rule versionRout
 	defer func() {
 		inspect(deleteRules(configVersion, []string{rule.key}),
 			fmt.Sprintf("failed to delete rules"), "", t)
+		inspect(applyRules(configVersion, defaultRules), "failed to apply rules", "", t)
 	}()
 
 	for _, userVersion := range rule.userVersions {
@@ -89,15 +93,14 @@ func testVersionRoutingRule(t *testing.T, configVersion string, rule versionRout
 
 func TestFaultDelay(t *testing.T) {
 	var rules = []string{testRule, delayRule}
-	for _, configVersion := range tf.ConfigVersions() {
-		doTestFaultDelay(t, configVersion, rules)
-	}
+	doTestFaultDelay(t, "v1alpha3", rules)
 }
 
 func doTestFaultDelay(t *testing.T, configVersion string, rules []string) {
 	inspect(applyRules(configVersion, rules), "failed to apply rules", "", t)
 	defer func() {
 		inspect(deleteRules(configVersion, rules), "failed to delete rules", "", t)
+		inspect(applyRules(configVersion, defaultRules), "failed to apply rules", "", t)
 	}()
 	minDuration := 5
 	maxDuration := 8
@@ -132,9 +135,7 @@ type migrationRule struct {
 }
 
 func TestVersionMigration(t *testing.T) {
-	for _, configVersion := range tf.ConfigVersions() {
-		doTestVersionMigration(t, configVersion)
-	}
+	doTestVersionMigration(t, "v1alpha3")
 }
 
 func doTestVersionMigration(t *testing.T, configVersion string) {
@@ -169,6 +170,7 @@ func testVersionMigrationRule(t *testing.T, configVersion string, rule migration
 	defer func() {
 		inspect(deleteRules(configVersion, []string{rule.key}),
 			fmt.Sprintf("failed to delete rules"), "", t)
+		inspect(applyRules(configVersion, defaultRules), "failed to apply rules", "", t)
 	}()
 	modelV1 := util.GetResourcePath(filepath.Join(modelDir, "productpage-normal-user-v1.html"))
 	tolerance := 0.05
@@ -179,8 +181,8 @@ func testVersionMigrationRule(t *testing.T, configVersion string, rule migration
 			Value: "bar",
 		},
 		{
-			Name:  "user",
-			Value: "normal-user",
+			Name:  "session",
+			Value: u1.sessionCookie,
 		},
 	}
 
@@ -199,10 +201,16 @@ func testVersionMigrationRule(t *testing.T, configVersion string, rule migration
 				log.Errora(err)
 				continue
 			}
-			if err = util.CompareToFile(body, modelV1); err == nil {
+
+			var c1CompareError, cVersionToMigrateError error
+			if c1CompareError = util.CompareToFile(body, modelV1); c1CompareError == nil {
 				c1++
-			} else if err = util.CompareToFile(body, rule.modelToMigrate); err == nil {
+			} else if cVersionToMigrateError = util.CompareToFile(body, rule.modelToMigrate); cVersionToMigrateError == nil {
 				cVersionToMigrate++
+			} else {
+				log.Error("received unexpected version: %s")
+				log.Infof("comparing to the original version: %v", c1CompareError)
+				log.Infof("comparing to the version to migrate to: %v", cVersionToMigrateError)
 			}
 			closeResponseBody(resp)
 		}
@@ -230,9 +238,7 @@ func isWithinPercentage(count int, total int, rate float64, tolerance float64) b
 
 func TestDbRoutingMongo(t *testing.T) {
 	var rules = []string{testDbRule}
-	for _, configVersion := range tf.ConfigVersions() {
-		doTestDbRoutingMongo(t, configVersion, rules)
-	}
+	doTestDbRoutingMongo(t, "v1alpha3", rules)
 }
 
 func doTestDbRoutingMongo(t *testing.T, configVersion string, rules []string) {
@@ -240,13 +246,14 @@ func doTestDbRoutingMongo(t *testing.T, configVersion string, rules []string) {
 	inspect(applyRules(configVersion, rules), "failed to apply rules", "", t)
 	defer func() {
 		inspect(deleteRules(configVersion, rules), "failed to delete rules", "", t)
+		inspect(applyRules(configVersion, defaultRules), "failed to apply rules", "", t)
 	}()
 
 	// TODO: update the rating in the db and check the value on page
 
 	respExpr := "glyphicon-star" // not great test for v2 or v3 being alive
 
-	_, err = checkHTTPResponse(u1, getIngressOrFail(t, configVersion), respExpr, 10)
+	_, err = checkHTTPResponse(getIngressOrFail(t, configVersion), respExpr, 10)
 	inspect(
 		err, fmt.Sprintf("Failed database routing! %s in v1", u1),
 		fmt.Sprintf("Success! Response matches with expected! %s", respExpr), t)
@@ -255,9 +262,7 @@ func doTestDbRoutingMongo(t *testing.T, configVersion string, rules []string) {
 func TestDbRoutingMysql(t *testing.T) {
 	var rules = []string{testMysqlRule}
 
-	for _, configVersion := range tf.ConfigVersions() {
-		doTestDbRoutingMysql(t, configVersion, rules)
-	}
+	doTestDbRoutingMysql(t, "v1alpha3", rules)
 }
 
 func doTestDbRoutingMysql(t *testing.T, configVersion string, rules []string) {
@@ -265,13 +270,14 @@ func doTestDbRoutingMysql(t *testing.T, configVersion string, rules []string) {
 	inspect(applyRules(configVersion, rules), "failed to apply rules", "", t)
 	defer func() {
 		inspect(deleteRules(configVersion, rules), "failed to delete rules", "", t)
+		inspect(applyRules(configVersion, defaultRules), "failed to apply rules", "", t)
 	}()
 
 	// TODO: update the rating in the db and check the value on page
 
 	respExpr := "glyphicon-star" // not great test for v2 or v3 being alive
 
-	_, err = checkHTTPResponse(u1, getIngressOrFail(t, configVersion), respExpr, 10)
+	_, err = checkHTTPResponse(getIngressOrFail(t, configVersion), respExpr, 10)
 	inspect(
 		err, fmt.Sprintf("Failed database routing! %s in v1", u1),
 		fmt.Sprintf("Success! Response matches with expected! %s", respExpr), t)
@@ -304,9 +310,7 @@ func TestExternalDetailsService(t *testing.T) {
 
 	var rules = []string{detailsExternalServiceRouteRule, detailsExternalServiceEgressRule}
 
-	for _, configVersion := range tf.ConfigVersions() {
-		doTestExternalDetailsService(t, configVersion, rules)
-	}
+	doTestExternalDetailsService(t, "v1alpha3", rules)
 }
 
 func doTestExternalDetailsService(t *testing.T, configVersion string, rules []string) {
@@ -314,11 +318,12 @@ func doTestExternalDetailsService(t *testing.T, configVersion string, rules []st
 	inspect(applyRules(configVersion, rules), "failed to apply rules", "", t)
 	defer func() {
 		inspect(deleteRules(configVersion, rules), "failed to delete rules", "", t)
+		inspect(applyRules(configVersion, defaultRules), "failed to apply rules", "", t)
 	}()
 
 	isbnFetchedFromExternalService := "0486424618"
 
-	_, err = checkHTTPResponse(u1, getIngressOrFail(t, configVersion), isbnFetchedFromExternalService, 1)
+	_, err = checkHTTPResponse(getIngressOrFail(t, configVersion), isbnFetchedFromExternalService, 1)
 	inspect(
 		err, fmt.Sprintf("Failed external details routing! %s in v1", u1),
 		fmt.Sprintf("Success! Response matches with expected! %s", isbnFetchedFromExternalService), t)

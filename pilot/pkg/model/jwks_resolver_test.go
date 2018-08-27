@@ -15,7 +15,6 @@
 package model
 
 import (
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,22 +26,17 @@ import (
 func TestResolveJwksURIUsingOpenID(t *testing.T) {
 	r := newJwksResolver(JwtPubKeyExpireDuration, JwtPubKeyEvictionDuration, JwtPubKeyRefreshInterval)
 
-	ms, err := test.NewServer()
+	ms, err := test.StartNewServer()
+	defer ms.Stop()
 	if err != nil {
-		t.Fatal("failed to create mock server")
+		t.Fatal("failed to start a mock server")
 	}
-	if err := ms.Start(); err != nil {
-		t.Fatal("failed to start mock server")
-	}
-	defer func() {
-		_ = ms.Stop()
-	}()
 
 	mockCertURL := ms.URL + "/oauth2/v3/certs"
 	cases := []struct {
-		in                   string
-		expectedJwksURI      string
-		expectedErrorMessage string
+		in              string
+		expectedJwksURI string
+		expectedError   bool
 	}{
 		{
 			in:              ms.URL,
@@ -53,24 +47,19 @@ func TestResolveJwksURIUsingOpenID(t *testing.T) {
 			expectedJwksURI: mockCertURL,
 		},
 		{
-			in:                   "http://xyz",
-			expectedErrorMessage: "no such host",
+			in:            "http://xyz",
+			expectedError: true,
 		},
 	}
 	for _, c := range cases {
 		jwksURI, err := r.resolveJwksURIUsingOpenID(c.in)
-		if err != nil {
-			if !strings.Contains(err.Error(), c.expectedErrorMessage) {
-				t.Errorf("resolveJwksURIUsingOpenID(%+v): expected error (%s), got (%v)", c.in, c.expectedErrorMessage, err)
-			}
-		} else {
-			if c.expectedErrorMessage != "" {
-				t.Errorf("resolveJwksURIUsingOpenID(%+v): expected error (%s), got no error", c.in, c.expectedErrorMessage)
-			}
-			if c.expectedJwksURI != jwksURI {
-				t.Errorf("resolveJwksURIUsingOpenID(%+v): expected (%s), got (%s)",
-					c.in, c.expectedJwksURI, jwksURI)
-			}
+		if err != nil && !c.expectedError {
+			t.Errorf("resolveJwksURIUsingOpenID(%+v): got error (%v)", c.in, err)
+		} else if err == nil && c.expectedError {
+			t.Errorf("resolveJwksURIUsingOpenID(%+v): expected error, got no error", c.in)
+		} else if c.expectedJwksURI != jwksURI {
+			t.Errorf("resolveJwksURIUsingOpenID(%+v): expected (%s), got (%s)",
+				c.in, c.expectedJwksURI, jwksURI)
 		}
 	}
 
@@ -83,17 +72,11 @@ func TestResolveJwksURIUsingOpenID(t *testing.T) {
 func TestSetAuthenticationPolicyJwksURIs(t *testing.T) {
 	r := newJwksResolver(JwtPubKeyExpireDuration, JwtPubKeyEvictionDuration, JwtPubKeyRefreshInterval)
 
-	ms, err := test.NewServer()
+	ms, err := test.StartNewServer()
+	defer ms.Stop()
 	if err != nil {
-		t.Fatal("failed to create mock server")
+		t.Fatal("failed to start a mock server")
 	}
-
-	if err := ms.Start(); err != nil {
-		t.Fatal("failed to start mock server")
-	}
-	defer func() {
-		_ = ms.Stop()
-	}()
 
 	mockCertURL := ms.URL + "/oauth2/v3/certs"
 
@@ -167,16 +150,11 @@ func TestGetPublicKey(t *testing.T) {
 	r := newJwksResolver(JwtPubKeyExpireDuration, JwtPubKeyEvictionDuration, JwtPubKeyRefreshInterval)
 	defer r.Close()
 
-	ms, err := test.NewServer()
+	ms, err := test.StartNewServer()
+	defer ms.Stop()
 	if err != nil {
-		t.Fatal("failed to create mock server")
+		t.Fatal("failed to start a mock server")
 	}
-	if err := ms.Start(); err != nil {
-		t.Fatal("failed to start mock server")
-	}
-	defer func() {
-		_ = ms.Stop()
-	}()
 
 	mockCertURL := ms.URL + "/oauth2/v3/certs"
 
@@ -213,16 +191,11 @@ func TestJwtPubKeyRefresh(t *testing.T) {
 	r := newJwksResolver(time.Millisecond /*ExpireDuration*/, 100*time.Millisecond /*EvictionDuration*/, 2*time.Millisecond /*RefreshInterval*/)
 	defer r.Close()
 
-	ms, err := test.NewServer()
+	ms, err := test.StartNewServer()
+	defer ms.Stop()
 	if err != nil {
-		t.Fatal("failed to create mock server")
+		t.Fatal("failed to start a mock server")
 	}
-	if err := ms.Start(); err != nil {
-		t.Fatal("failed to start mock server")
-	}
-	defer func() {
-		_ = ms.Stop()
-	}()
 
 	mockCertURL := ms.URL + "/oauth2/v3/certs"
 	cases := []struct {

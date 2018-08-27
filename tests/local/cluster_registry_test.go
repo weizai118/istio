@@ -25,14 +25,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/ptypes"
+	"github.com/gogo/protobuf/types"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api/v1"
 	k8s_cr "k8s.io/cluster-registry/pkg/apis/clusterregistry/v1alpha1"
 
 	"istio.io/istio/pilot/pkg/bootstrap"
-	envoy "istio.io/istio/pilot/pkg/proxy/envoy/v1"
+	"istio.io/istio/pilot/pkg/proxy/envoy"
 	"istio.io/istio/pilot/pkg/serviceregistry"
 )
 
@@ -196,7 +196,7 @@ func initMulticlusterPilot(IstioSrc string) (*bootstrap.Server, error) {
 	serverAgrs := bootstrap.PilotArgs{
 		Namespace: "istio-system",
 		DiscoveryOptions: envoy.DiscoveryServiceOptions{
-			Port:            18080, // An unused port will be chosen
+			HTTPAddr:        ":18080", // An unused port will be chosen
 			GrpcAddr:        ":0",
 			EnableCaching:   true,
 			EnableProfiling: true,
@@ -204,7 +204,7 @@ func initMulticlusterPilot(IstioSrc string) (*bootstrap.Server, error) {
 		//TODO: start mixer first, get its address
 		Mesh: bootstrap.MeshArgs{
 			MixerAddress:    "istio-mixer.istio-system:9091",
-			RdsRefreshDelay: ptypes.DurationProto(10 * time.Millisecond),
+			RdsRefreshDelay: types.DurationProto(10 * time.Millisecond),
 		},
 		Config: bootstrap.ConfigArgs{
 			KubeConfig:                 IstioSrc + "/.circleci/mc-config",
@@ -227,7 +227,7 @@ func initMulticlusterPilot(IstioSrc string) (*bootstrap.Server, error) {
 
 func startMulticlusterPilot(s *bootstrap.Server, stop chan struct{}) {
 	// Start the server
-	_, _ = s.Start(stop)
+	s.Start(stop)
 }
 
 func prepareEnv(t *testing.T) error {

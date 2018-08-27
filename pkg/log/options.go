@@ -16,6 +16,7 @@ package log
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -327,13 +328,12 @@ func (o *Options) AttachCobraFlags(cmd *cobra.Command) {
 
 	allScopes := Scopes()
 	if len(allScopes) > 1 {
-		s := ""
+		keys := make([]string, 0, len(allScopes))
 		for name := range allScopes {
-			if s != "" {
-				s = s + ", "
-			}
-			s = s + name
+			keys = append(keys, name)
 		}
+		sort.Strings(keys)
+		s := strings.Join(keys, ", ")
 
 		cmd.PersistentFlags().StringVar(&o.outputLevels, "log_output_level", o.outputLevels,
 			fmt.Sprintf("Comma-separated minimum per-scope logging level of messages to output, in the form of "+
@@ -380,18 +380,4 @@ func (o *Options) AttachCobraFlags(cmd *cobra.Command) {
 
 	// NOTE: we don't currently expose a command-line option to control ErrorOutputPaths since it
 	// seems too esoteric.
-
-	// TODO: Remove all this stuff by the 1.0 release
-	var dummy string
-	var dummy2 bool
-	cmd.PersistentFlags().StringVarP(&dummy, "v", "v", "", "deprecated")
-	cmd.PersistentFlags().StringVarP(&dummy, "stderrthreshold", "", "", "deprecated")
-	cmd.PersistentFlags().BoolVarP(&dummy2, "alsologtostderr", "", false, "deprecated")
-	cmd.PersistentFlags().BoolVarP(&dummy2, "logtostderr", "", false, "deprecated")
-
-	_ = cmd.PersistentFlags().MarkDeprecated("v", "please use --log_output_level instead")
-	_ = cmd.PersistentFlags().MarkShorthandDeprecated("v", "please use --log_output_level instead")
-	_ = cmd.PersistentFlags().MarkDeprecated("stderrthreshold", "please use --log_output_level instead")
-	_ = cmd.PersistentFlags().MarkDeprecated("logtostderr", "please use --log_target instead")
-	_ = cmd.PersistentFlags().MarkDeprecated("alsologtostderr", "please use --log_target instead")
 }

@@ -50,6 +50,9 @@ const (
 	// The key to specify corresponding service account in the annotation of K8s secrets.
 	ServiceAccountNameAnnotationKey = "istio.io/service-account.name"
 
+	// The default SPIFFE URL value for identity domain
+	DefaultIdentityDomain = "cluster.local"
+
 	secretNamePrefix   = "istio."
 	secretResyncPeriod = time.Minute
 
@@ -82,10 +85,14 @@ type DNSNameEntry struct {
 type SecretController struct {
 	ca             ca.CertificateAuthority
 	certTTL        time.Duration
+	identityDomain string
 	core           corev1.CoreV1Interface
 	minGracePeriod time.Duration
 	// Length of the grace period for the certificate rotation.
 	gracePeriodRatio float32
+
+	// Whether the certificates are for dual-use clients (SAN+CN).
+	dualUse bool
 
 	// Whether the certificates are for CAs.
 	forCA bool
@@ -105,7 +112,8 @@ type SecretController struct {
 }
 
 // NewSecretController returns a pointer to a newly constructed SecretController instance.
-func NewSecretController(ca ca.CertificateAuthority, certTTL time.Duration, gracePeriodRatio float32, minGracePeriod time.Duration,
+func NewSecretController(ca ca.CertificateAuthority, certTTL time.Duration, identityDomain string,
+	gracePeriodRatio float32, minGracePeriod time.Duration, dualUse bool,
 	core corev1.CoreV1Interface, forCA bool, namespace string, dnsNames map[string]DNSNameEntry) (*SecretController, error) {
 
 	if gracePeriodRatio < 0 || gracePeriodRatio > 1 {
@@ -116,11 +124,17 @@ func NewSecretController(ca ca.CertificateAuthority, certTTL time.Duration, grac
 			gracePeriodRatio, recommendedMinGracePeriodRatio, recommendedMaxGracePeriodRatio)
 	}
 
+	if identityDomain == "" {
+		identityDomain = DefaultIdentityDomain
+	}
+
 	c := &SecretController{
 		ca:               ca,
 		certTTL:          certTTL,
+		identityDomain:   identityDomain,
 		gracePeriodRatio: gracePeriodRatio,
 		minGracePeriod:   minGracePeriod,
+		dualUse:          dualUse,
 		core:             core,
 		forCA:            forCA,
 		dnsNames:         dnsNames,
@@ -294,7 +308,7 @@ func (sc *SecretController) scrtDeleted(obj interface{}) {
 }
 
 func (sc *SecretController) generateKeyAndCert(saName string, saNamespace string) ([]byte, []byte, error) {
-	id := fmt.Sprintf("%s://cluster.local/ns/%s/sa/%s", util.URIScheme, saNamespace, saName)
+	id := fmt.Sprintf("%s://%s/ns/%s/sa/%s", util.URIScheme, sc.identityDomain, saNamespace, saName)
 	if sc.dnsNames != nil {
 		// Control plane components in same namespace.
 		if e, ok := sc.dnsNames[saName]; ok {
@@ -305,7 +319,7 @@ func (sc *SecretController) generateKeyAndCert(saName string, saNamespace string
 			}
 		}
 		// Custom overrides using CLI
-		if e, ok := sc.dnsNames[saName+"."+saName]; ok {
+		if e, ok := sc.dnsNames[saName+"."+saNamespace]; ok {
 			for _, d := range e.CustomDomains {
 				id += "," + d
 			}
@@ -314,17 +328,22 @@ func (sc *SecretController) generateKeyAndCert(saName string, saNamespace string
 	options := util.CertOptions{
 		Host:       id,
 		RSAKeySize: keySize,
+		IsDualUse:  sc.dualUse,
 	}
 
 	csrPEM, keyPEM, err := util.GenCSR(options)
 	if err != nil {
+		log.Errorf("CSR generation error (%v)", err)
+		sc.monitoring.CSRError.Inc()
 		return nil, nil, err
 	}
 
 	certChainPEM := sc.ca.GetCAKeyCertBundle().GetCertChainPem()
-	certPEM, err := sc.ca.Sign(csrPEM, sc.certTTL, sc.forCA)
-	if err != nil {
-		return nil, nil, err
+	certPEM, signErr := sc.ca.Sign(csrPEM, sc.certTTL, sc.forCA)
+	if signErr != nil {
+		log.Errorf("CSR signing error (%v)", signErr.Error())
+		sc.monitoring.GetCertSignError(signErr.(*ca.Error).ErrorType()).Inc()
+		return nil, nil, fmt.Errorf("CSR signing error (%v)", signErr.(*ca.Error))
 	}
 	certPEM = append(certPEM, certChainPEM...)
 

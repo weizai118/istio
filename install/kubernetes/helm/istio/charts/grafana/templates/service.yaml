@@ -4,7 +4,9 @@ metadata:
   name: grafana
   namespace: {{ .Release.Namespace }}
   annotations:
-    auth.istio.io/{{ .Values.service.externalPort }}: NONE
+    {{- range $key, $val := .Values.service.annotations }}
+    {{ $key }}: {{ $val | quote }}
+    {{- end }}
   labels:
     app: {{ template "grafana.name" . }}
     chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
@@ -19,3 +21,12 @@ spec:
       name: {{ .Values.service.name }}
   selector:
     app: grafana
+{{- if .Values.service.loadBalancerIP }}
+  loadBalancerIP: "{{ .Values.service.loadBalancerIP }}"
+{{- end }}
+  {{if .Values.service.loadBalancerSourceRanges}}
+  loadBalancerSourceRanges:
+    {{range $rangeList := .Values.service.loadBalancerSourceRanges}}
+    - {{ $rangeList }}
+    {{end}}
+  {{end}}

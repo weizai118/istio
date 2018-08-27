@@ -1,45 +1,40 @@
 dependencies:
-  - name: sidecar-injector
-    version: 0.8.0
-    # repository: file://../sidecar-injector
-    condition: sidecar-injector.enabled
+  - name: sidecarInjectorWebhook
+    version: 1.0.1
+    condition: sidecarInjectorWebhook.enabled
+  - name: security
+    version: 1.0.1
+    condition: security.enabled
   - name: ingress
-    version: 0.8.0
-    # repository: file://../ingress
+    version: 1.0.1
     condition: ingress.enabled
-  - name: ingressgateway
-    version: 0.8.0
-    # repository: file://../ingressgateway
-    condition: ingressgateway.enabled
-  - name: egressgateway
-    version: 0.8.0
-    # repository: file://../egressgateway
-    condition: egressgateway.enabled
+  - name: gateways
+    version: 1.0.1
+    condition: gateways.enabled
   - name: mixer
-    version: 0.8.0
-    # repository: file://../mixer
+    version: 1.0.1
     condition: mixer.enabled
   - name: pilot
-    version: 0.8.0
-    # repository: file://../pilot
+    version: 1.0.1
     condition: pilot.enabled
   - name: grafana
-    version: 0.1.0
-    # repository: file://../addons/grafana
+    version: 1.0.1
     condition: grafana.enabled
   - name: prometheus
-    version: 0.1.0
-    # repository: file://../addons/prometheus
+    version: 1.0.1
     condition: prometheus.enabled
   - name: servicegraph
-    version: 0.1.0
-    # repository: file://../addons/servicegraph
+    version: 1.0.1
     condition: servicegraph.enabled
-  - name: zipkin
-    version: 0.1.0
-    # repository: file://../addons/zipkin
-    condition: zipkin.enabled
+  - name: tracing
+    version: 1.0.1
+    condition: tracing.enabled
   - name: galley
-    version: 0.8.0
-    # repository: file://../sidecar-injector
+    version: 1.0.1
     condition: galley.enabled
+  - name: kiali
+    version: 1.0.1
+    condition: kiali.enabled
+  - name: certmanager
+    version: 1.0.1
+    condition: certmanager.enabled

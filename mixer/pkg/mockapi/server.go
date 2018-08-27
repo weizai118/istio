@@ -60,11 +60,15 @@ type AttributesServer struct {
 	// to the attribute handling pipeline within Mixer and to set the response
 	// details.
 	Handler AttributesHandler
+
+	// CheckGlobalDict indicates whether to check if proxy global dictionary
+	// is ahead of the one in mixer.
+	checkGlobalDict bool
 }
 
 // NewAttributesServer creates an AttributesServer. All channels are set to
 // default length.
-func NewAttributesServer(handler AttributesHandler) *AttributesServer {
+func NewAttributesServer(handler AttributesHandler, checkDict bool) *AttributesServer {
 	list := attribute.GlobalList()
 	globalDict := make(map[string]int32, len(list))
 	for i := 0; i < len(list); i++ {
@@ -75,6 +79,7 @@ func NewAttributesServer(handler AttributesHandler) *AttributesServer {
 		globalDict,
 		false,
 		handler,
+		checkDict,
 	}
 }
 
@@ -86,27 +91,20 @@ func (a *AttributesServer) Check(ctx context.Context, req *mixerpb.CheckRequest)
 	if a.GenerateGRPCError {
 		return nil, errors.New("error handling check call")
 	}
+	if a.checkGlobalDict && req.GlobalWordCount > uint32(len(a.GlobalDict)) {
+		return nil, fmt.Errorf("global dictionary mismatch: proxy %d and mixer %d", req.GlobalWordCount, len(a.GlobalDict))
+	}
 
 	requestBag := attribute.NewProtoBag(&req.Attributes, a.GlobalDict, attribute.GlobalList())
 	defer requestBag.Done()
 
-	responseBag := attribute.GetMutableBag(nil)
-	result, out := a.Handler.Check(requestBag, responseBag)
-
-	resp := &mixerpb.CheckResponse{
-		Precondition: mixerpb.CheckResponse_PreconditionResult{
-			Status:        out,
-			ValidUseCount: result.ValidUseCount,
-			ValidDuration: result.ValidDuration,
-		},
+	result := a.Handler.Check(requestBag)
+	if result.ReferencedAttributes == nil {
+		result.ReferencedAttributes = requestBag.GetReferencedAttributes(a.GlobalDict, int(req.GlobalWordCount))
 	}
-	if result.Referenced != nil {
-		resp.Precondition.ReferencedAttributes = *result.Referenced
-	} else {
-		resp.Precondition.ReferencedAttributes = requestBag.GetReferencedAttributes(a.GlobalDict, int(req.GlobalWordCount))
-	}
-	responseBag.ToProto(&resp.Precondition.Attributes, a.GlobalDict, int(req.GlobalWordCount))
 	requestBag.ClearReferencedAttributes()
+
+	resp := &mixerpb.CheckResponse{Precondition: result}
 
 	if len(req.Quotas) > 0 {
 		resp.Quotas = make(map[string]mixerpb.CheckResponse_QuotaResult, len(req.Quotas))
@@ -126,12 +124,12 @@ func (a *AttributesServer) Check(ctx context.Context, req *mixerpb.CheckRequest)
 			qr := mixerpb.CheckResponse_QuotaResult{
 				GrantedAmount:        result.Amount,
 				ValidDuration:        result.Expiration,
-				ReferencedAttributes: requestBag.GetReferencedAttributes(a.GlobalDict, int(req.GlobalWordCount)),
+				ReferencedAttributes: *requestBag.GetReferencedAttributes(a.GlobalDict, int(req.GlobalWordCount)),
 			}
 			if result.Referenced != nil {
 				qr.ReferencedAttributes = *result.Referenced
 			} else {
-				qr.ReferencedAttributes = requestBag.GetReferencedAttributes(a.GlobalDict, int(req.GlobalWordCount))
+				qr.ReferencedAttributes = *requestBag.GetReferencedAttributes(a.GlobalDict, int(req.GlobalWordCount))
 			}
 			resp.Quotas[name] = qr
 			requestBag.ClearReferencedAttributes()

@@ -87,11 +87,12 @@ func TestCreateSelfSignedIstioCAWithoutSecret(t *testing.T) {
 	defaultCertTTL := 30 * time.Minute
 	maxCertTTL := time.Hour
 	org := "test.ca.org"
+	dualUse := false
 	caNamespace := "default"
 	client := fake.NewSimpleClientset()
 
-	caopts, err := NewSelfSignedIstioCAOptions(caCertTTL, defaultCertTTL, maxCertTTL, org, caNamespace,
-		client.CoreV1())
+	caopts, err := NewSelfSignedIstioCAOptions(caCertTTL, defaultCertTTL, maxCertTTL,
+		org, dualUse, caNamespace, client.CoreV1())
 	if err != nil {
 		t.Fatalf("Failed to create a self-signed CA Options: %v", err)
 	}
@@ -160,9 +161,10 @@ func TestCreateSelfSignedIstioCAWithSecret(t *testing.T) {
 	maxCertTTL := time.Hour
 	org := "test.ca.org"
 	caNamespace := "default"
+	dualUse := false
 
-	caopts, err := NewSelfSignedIstioCAOptions(caCertTTL, certTTL, maxCertTTL, org, caNamespace,
-		client.CoreV1())
+	caopts, err := NewSelfSignedIstioCAOptions(caCertTTL, certTTL, maxCertTTL,
+		org, dualUse, caNamespace, client.CoreV1())
 	if err != nil {
 		t.Fatalf("Failed to create a self-signed CA Options: %v", err)
 	}
@@ -252,8 +254,8 @@ func TestSignCSRForWorkload(t *testing.T) {
 	}
 
 	requestedTTL := 30 * time.Minute
-	certPEM, err := ca.Sign(csrPEM, requestedTTL, false)
-	if err != nil {
+	certPEM, signErr := ca.Sign(csrPEM, requestedTTL, false)
+	if signErr != nil {
 		t.Error(err)
 	}
 
@@ -308,8 +310,8 @@ func TestSignCSRForCA(t *testing.T) {
 	}
 
 	requestedTTL := 30 * 24 * time.Hour
-	certPEM, err := ca.Sign(csrPEM, requestedTTL, true)
-	if err != nil {
+	certPEM, signErr := ca.Sign(csrPEM, requestedTTL, true)
+	if signErr != nil {
 		t.Error(err)
 	}
 
@@ -363,13 +365,13 @@ func TestSignCSRTTLError(t *testing.T) {
 
 	ttl := 3 * time.Hour
 
-	cert, err := ca.Sign(csrPEM, ttl, false)
+	cert, signErr := ca.Sign(csrPEM, ttl, false)
 	if cert != nil {
 		t.Errorf("Expected null cert be obtained a non-null cert.")
 	}
 	expectedErr := "requested TTL 3h0m0s is greater than the max allowed TTL 2h0m0s"
-	if err.Error() != expectedErr {
-		t.Errorf("Expected error: %s but got error: %s.", err.Error(), expectedErr)
+	if signErr.(*Error).Error() != expectedErr {
+		t.Errorf("Expected error: %s but got error: %s.", signErr.(*Error).Error(), expectedErr)
 	}
 }
 
