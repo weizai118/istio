@@ -56,13 +56,13 @@ func Register(builders map[string]store.Builder) {
 	}
 
 	builders["mcp"] = builder
-	builders["mcpi"] = builder
+	builders["mcps"] = builder
 }
 
 // NewStore creates a new Store instance.
 func newStore(u *url.URL, credOptions *creds.Options, fn updateHookFn) (store.Backend, error) {
 	insecure := true
-	if u.Scheme == "mcp" {
+	if u.Scheme == "mcps" {
 		insecure = false
 		if credOptions == nil {
 			return nil, errors.New("no credentials specified with secure MCP scheme")
@@ -120,7 +120,7 @@ var _ client.Updater = &backend{}
 
 // state is the in-memory cache.
 type state struct {
-	sync.Mutex
+	sync.RWMutex
 
 	// items stored by kind, then by key.
 	items map[string]map[store.Key]*store.BackEndResource
@@ -134,10 +134,10 @@ func (b *backend) Init(kinds []string) error {
 	}
 	b.mapping = m
 
-	messageNames := b.mapping.messageNames()
-	scope.Infof("Requesting following messages:")
-	for i, name := range messageNames {
-		scope.Infof("  [%d] %s", i, name)
+	typeURLs := b.mapping.typeURLs()
+	scope.Infof("Requesting following types:")
+	for i, url := range typeURLs {
+		scope.Infof("  [%d] %s", i, url)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -150,7 +150,7 @@ func (b *backend) Init(kinds []string) error {
 		}
 
 		requiredFiles := []string{b.credOptions.CertificateFile, b.credOptions.KeyFile, b.credOptions.CACertificateFile}
-		log.Infof("Secure MSP configured. Waiting for required certificate files to become available: %v", requiredFiles)
+		log.Infof("Secure MCP configured. Waiting for required certificate files to become available: %v", requiredFiles)
 		for len(requiredFiles) > 0 {
 			if _, err := os.Stat(requiredFiles[0]); os.IsNotExist(err) {
 				log.Infof("%v not found. Checking again in %v", requiredFiles[0], requiredCertCheckFreq)
@@ -183,7 +183,7 @@ func (b *backend) Init(kinds []string) error {
 	}
 
 	cl := mcp.NewAggregatedMeshConfigServiceClient(conn)
-	c := client.New(cl, messageNames, b, mixerNodeID, map[string]string{})
+	c := client.New(cl, typeURLs, b, mixerNodeID, map[string]string{})
 	configz.Register(c)
 
 	b.state = &state{
@@ -226,8 +226,8 @@ func (b *backend) Watch() (<-chan store.BackendEvent, error) {
 
 // Get returns a resource's spec to the key.
 func (b *backend) Get(key store.Key) (*store.BackEndResource, error) {
-	b.state.Lock()
-	defer b.state.Unlock()
+	b.state.RLock()
+	defer b.state.RUnlock()
 
 	perTypeState, found := b.state.items[key.Kind]
 	if !found {
@@ -244,8 +244,8 @@ func (b *backend) Get(key store.Key) (*store.BackEndResource, error) {
 
 // List returns the whole mapping from key to resource specs in the store.
 func (b *backend) List() map[store.Key]*store.BackEndResource {
-	b.state.Lock()
-	defer b.state.Unlock()
+	b.state.RLock()
+	defer b.state.RUnlock()
 
 	result := make(map[store.Key]*store.BackEndResource)
 	for _, perTypeItems := range b.state.items {
@@ -264,9 +264,9 @@ func (b *backend) Apply(change *client.Change) error {
 	defer b.callUpdateHook()
 
 	newTypeStates := make(map[string]map[store.Key]*store.BackEndResource)
-	typeURL := fmt.Sprintf("type.googleapis.com/%s", change.MessageName)
+	typeURL := change.TypeURL
 
-	scope.Debugf("Received update for: type:%s, count:%d", change.MessageName, len(change.Objects))
+	scope.Debugf("Received update for: type:%s, count:%d", typeURL, len(change.Objects))
 
 	for _, o := range change.Objects {
 		var kind string
@@ -274,7 +274,8 @@ func (b *backend) Apply(change *client.Change) error {
 		var contents proto.Message
 
 		if scope.DebugEnabled() {
-			scope.Debugf("Processing incoming resource: %q @%s [%s]", o.Metadata.Name, o.Version, o.MessageName)
+			scope.Debugf("Processing incoming resource: %q @%s [%s]",
+				o.Metadata.Name, o.Metadata.Version, o.TypeURL)
 		}
 
 		// Demultiplex the resource, if it is a legacy type, and figure out its kind.
@@ -300,7 +301,7 @@ func (b *backend) Apply(change *client.Change) error {
 		// Map it to Mixer's store model, and put it in the new collection.
 
 		key := toKey(kind, name)
-		resource, err := toBackendResource(key, contents, o.Version)
+		resource, err := toBackendResource(key, contents, o.Metadata.Version)
 		if err != nil {
 			return err
 		}

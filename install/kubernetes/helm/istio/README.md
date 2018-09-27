@@ -80,13 +80,13 @@ $ helm init --service-account tiller
 
 5. If you are using security mode for Grafana, create the secret first as follows:
 
-Encode username, you can chage the username to the name as you want:
+Encode username, you can change the username to the name as you want:
 ```
 $ echo -n 'admin' | base64
 YWRtaW4=
 ```
 
-Encode passphrase, you can chage the passphrase to the passphrase as you want:
+Encode passphrase, you can change the passphrase to the passphrase as you want:
 ```
 $ echo -n '1f2d1e2e67df' | base64
 MWYyZDFlMmU2N2Rm
@@ -137,6 +137,7 @@ Helm charts expose configuration options which are currently in alpha.  The curr
 | `global.hub` | Specifies the HUB for most images used by Istio | registry/namespace | `docker.io/istio` |
 | `global.tag` | Specifies the TAG for most images used by Istio | valid image tag | `0.8.latest` |
 | `global.proxy.image` | Specifies the proxy image name | valid proxy name | `proxyv2` |
+| `global.proxy.concurrency` | Specifies the number of proxy worker threads | number, 0 = auto | `0` |
 | `global.imagePullPolicy` | Specifies the image pull policy | valid image pull policy | `IfNotPresent` |
 | `global.controlPlaneSecurityEnabled` | Specifies whether control plane mTLS is enabled | true/false | `false` |
 | `global.mtls.enabled` | Specifies whether mTLS is enabled by default between services | true/false | `false` |

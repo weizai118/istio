@@ -22,7 +22,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
-	multierror "github.com/hashicorp/go-multierror"
+	"github.com/hashicorp/go-multierror"
 
 	authn "istio.io/api/authentication/v1alpha1"
 	meshconfig "istio.io/api/mesh/v1alpha1"
@@ -503,34 +503,6 @@ func TestValidateParentAndDrain(t *testing.T) {
 	}
 }
 
-func TestValidateRefreshDelay(t *testing.T) {
-	type durationCheck struct {
-		duration *types.Duration
-		isValid  bool
-	}
-
-	checks := []durationCheck{
-		{
-			duration: &types.Duration{Seconds: 1},
-			isValid:  true,
-		},
-		{
-			duration: &types.Duration{Seconds: 36001},
-			isValid:  false,
-		},
-		{
-			duration: &types.Duration{Nanos: 1},
-			isValid:  false,
-		},
-	}
-
-	for _, check := range checks {
-		if got := ValidateRefreshDelay(check.duration); (got == nil) != check.isValid {
-			t.Errorf("Failed: got valid=%t but wanted valid=%t: %v for %v", got == nil, check.isValid, got, check.duration)
-		}
-	}
-}
-
 func TestValidateConnectTimeout(t *testing.T) {
 	type durationCheck struct {
 		duration *types.Duration
@@ -570,7 +542,6 @@ func TestValidateMeshConfig(t *testing.T) {
 		ProxyListenPort:   0,
 		ConnectTimeout:    types.DurationProto(-1 * time.Second),
 		AuthPolicy:        -1,
-		RdsRefreshDelay:   types.DurationProto(-1 * time.Second),
 		DefaultConfig:     &meshconfig.ProxyConfig{},
 	}
 
@@ -602,7 +573,6 @@ func TestValidateProxyConfig(t *testing.T) {
 		ProxyAdminPort:         0,
 		DrainDuration:          types.DurationProto(-1 * time.Second),
 		ParentShutdownDuration: types.DurationProto(-1 * time.Second),
-		DiscoveryRefreshDelay:  types.DurationProto(-1 * time.Second),
 		ConnectTimeout:         types.DurationProto(-1 * time.Second),
 		ServiceCluster:         "",
 		StatsdUdpAddress:       "10.0.0.100",
@@ -617,7 +587,7 @@ func TestValidateProxyConfig(t *testing.T) {
 		switch err.(type) {
 		case *multierror.Error:
 			// each field must cause an error in the field
-			if len(err.(*multierror.Error).Errors) < 12 {
+			if len(err.(*multierror.Error).Errors) < 11 {
 				t.Errorf("expected an error for each field %v", err)
 			}
 		default:
@@ -1534,17 +1504,38 @@ func TestValidateHTTPRewrite(t *testing.T) {
 		in    *networking.HTTPRewrite
 		valid bool
 	}{
-		{name: "uri and authority", in: &networking.HTTPRewrite{
-			Uri:       "/path/to/resource",
-			Authority: "foobar.org",
-		}, valid: true},
-		{name: "uri", in: &networking.HTTPRewrite{
-			Uri: "/path/to/resource",
-		}, valid: true},
-		{name: "authority", in: &networking.HTTPRewrite{
-			Authority: "foobar.org",
-		}, valid: true},
-		{name: "no uri or authority", in: &networking.HTTPRewrite{}, valid: false},
+		{
+			name:  "nil in",
+			in:    nil,
+			valid: true,
+		},
+		{
+			name: "uri and authority",
+			in: &networking.HTTPRewrite{
+				Uri:       "/path/to/resource",
+				Authority: "foobar.org",
+			},
+			valid: true,
+		},
+		{
+			name: "uri",
+			in: &networking.HTTPRewrite{
+				Uri: "/path/to/resource",
+			},
+			valid: true,
+		},
+		{
+			name: "authority",
+			in: &networking.HTTPRewrite{
+				Authority: "foobar.org",
+			},
+			valid: true,
+		},
+		{
+			name:  "no uri or authority",
+			in:    &networking.HTTPRewrite{},
+			valid: false,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1557,22 +1548,122 @@ func TestValidateHTTPRewrite(t *testing.T) {
 	}
 }
 
+func TestValidatePortName(t *testing.T) {
+	testCases := []struct {
+		name  string
+		valid bool
+	}{
+		{
+			name:  "",
+			valid: false,
+		},
+		{
+			name:  "simple",
+			valid: true,
+		},
+		{
+			name:  "full",
+			valid: true,
+		},
+		{
+			name:  "toolongtoolongtoolongtoolongtoolongtoolongtoolongtoolongtoolongtoolongtoolongtoolongtoolongtoolong",
+			valid: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validatePortName(tc.name); (err == nil) != tc.valid {
+				t.Fatalf("got valid=%v but wanted valid=%v: %v", err == nil, tc.valid, err)
+			}
+		})
+	}
+}
+
+func TestValidateHTTPRedirect(t *testing.T) {
+	testCases := []struct {
+		name     string
+		redirect *networking.HTTPRedirect
+		valid    bool
+	}{
+		{
+			name:     "nil redirect",
+			redirect: nil,
+			valid:    true,
+		},
+		{
+			name: "empty uri and authority",
+			redirect: &networking.HTTPRedirect{
+				Uri:       "",
+				Authority: "",
+			},
+			valid: false,
+		},
+		{
+			name: "empty authority",
+			redirect: &networking.HTTPRedirect{
+				Uri:       "t",
+				Authority: "",
+			},
+			valid: true,
+		},
+		{
+			name: "empty uri",
+			redirect: &networking.HTTPRedirect{
+				Uri:       "",
+				Authority: "t",
+			},
+			valid: true,
+		},
+		{
+			name: "normal redirect",
+			redirect: &networking.HTTPRedirect{
+				Uri:       "t",
+				Authority: "t",
+			},
+			valid: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateHTTPRedirect(tc.redirect); (err == nil) != tc.valid {
+				t.Fatalf("got valid=%v but wanted valid=%v: %v", err == nil, tc.valid, err)
+			}
+		})
+	}
+}
+
 func TestValidateDestination(t *testing.T) {
 	testCases := []struct {
 		name        string
 		destination *networking.Destination
 		valid       bool
 	}{
-		{name: "empty", destination: &networking.Destination{ // nothing
-		}, valid:                                             false},
-		{name: "simple", destination: &networking.Destination{
-			Host: "foo.bar",
-		}, valid: true},
-		{name: "full", destination: &networking.Destination{
-			Host:   "foo.bar",
-			Subset: "shiny",
-			Port:   &networking.PortSelector{Port: &networking.PortSelector_Number{Number: 5000}},
-		}, valid: true},
+		{
+			name:        "empty",
+			destination: &networking.Destination{}, // nothing
+			valid:       false,
+		},
+		{
+			name: "simple",
+			destination: &networking.Destination{
+				Host: "foo.bar",
+			},
+			valid: true,
+		},
+		{name: "full",
+			destination: &networking.Destination{
+				Host:   "foo.bar",
+				Subset: "shiny",
+				Port: &networking.PortSelector{
+					Port: &networking.PortSelector_Number{
+						Number: 5000,
+					},
+				},
+			},
+			valid: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1730,6 +1821,15 @@ func TestValidateVirtualService(t *testing.T) {
 				Route: []*networking.DestinationWeight{{
 					Destination: &networking.Destination{Host: "foo.baz"},
 				}},
+			}},
+		}, valid: true},
+		{name: "valid removeResponseHeaders", in: &networking.VirtualService{
+			Hosts: []string{"foo.bar"},
+			Http: []*networking.HTTPRoute{{
+				Route: []*networking.DestinationWeight{{
+					Destination: &networking.Destination{Host: "foo.baz"},
+				}},
+				RemoveResponseHeaders: []string{"unwantedHeader", "secretStuff"},
 			}},
 		}, valid: true},
 	}
@@ -2035,6 +2135,72 @@ func TestValidateConnectionPool(t *testing.T) {
 	for _, c := range cases {
 		if got := validateConnectionPool(&c.in); (got == nil) != c.valid {
 			t.Errorf("ValidateConnectionSettings failed on %v: got valid=%v but wanted valid=%v: %v",
+				c.name, got == nil, c.valid, got)
+		}
+	}
+}
+
+func TestValidateLoadBalancer(t *testing.T) {
+	duration := time.Duration(time.Hour)
+	cases := []struct {
+		name  string
+		in    networking.LoadBalancerSettings
+		valid bool
+	}{
+		{name: "valid load balancer with simple load balancing", in: networking.LoadBalancerSettings{
+			LbPolicy: &networking.LoadBalancerSettings_Simple{
+				Simple: networking.LoadBalancerSettings_ROUND_ROBIN,
+			},
+		},
+			valid: true},
+
+		{name: "valid load balancer with consistentHash load balancing", in: networking.LoadBalancerSettings{
+			LbPolicy: &networking.LoadBalancerSettings_ConsistentHash{
+				ConsistentHash: &networking.LoadBalancerSettings_ConsistentHashLB{
+					MinimumRingSize: 1024,
+					HashKey: &networking.LoadBalancerSettings_ConsistentHashLB_HttpCookie{
+						HttpCookie: &networking.LoadBalancerSettings_ConsistentHashLB_HTTPCookie{
+							Name: "test",
+							Ttl:  &duration,
+						},
+					},
+				},
+			},
+		},
+			valid: true},
+
+		{name: "invalid load balancer with consistentHash load balancing, missing ttl", in: networking.LoadBalancerSettings{
+			LbPolicy: &networking.LoadBalancerSettings_ConsistentHash{
+				ConsistentHash: &networking.LoadBalancerSettings_ConsistentHashLB{
+					MinimumRingSize: 1024,
+					HashKey: &networking.LoadBalancerSettings_ConsistentHashLB_HttpCookie{
+						HttpCookie: &networking.LoadBalancerSettings_ConsistentHashLB_HTTPCookie{
+							Name: "test",
+						},
+					},
+				},
+			},
+		},
+			valid: false},
+
+		{name: "invalid load balancer with consistentHash load balancing, missing name", in: networking.LoadBalancerSettings{
+			LbPolicy: &networking.LoadBalancerSettings_ConsistentHash{
+				ConsistentHash: &networking.LoadBalancerSettings_ConsistentHashLB{
+					MinimumRingSize: 1024,
+					HashKey: &networking.LoadBalancerSettings_ConsistentHashLB_HttpCookie{
+						HttpCookie: &networking.LoadBalancerSettings_ConsistentHashLB_HTTPCookie{
+							Ttl: &duration,
+						},
+					},
+				},
+			},
+		},
+			valid: false},
+	}
+
+	for _, c := range cases {
+		if got := validateLoadBalancer(&c.in); (got == nil) != c.valid {
+			t.Errorf("validateLoadBalancer failed on %v: got valid=%v but wanted valid=%v: %v",
 				c.name, got == nil, c.valid, got)
 		}
 	}
@@ -2750,28 +2916,6 @@ func TestValidateServiceRole(t *testing.T) {
 			expectErrMsg: "at least 1 service must be specified for rule 1",
 		},
 		{
-			name: "no method",
-			in: &rbac.ServiceRole{Rules: []*rbac.AccessRule{
-				{
-					Services: []string{"service0"},
-					Methods:  []string{"GET", "POST"},
-					Constraints: []*rbac.AccessRule_Constraint{
-						{Key: "key", Values: []string{"value"}},
-						{Key: "key", Values: []string{"value"}},
-					},
-				},
-				{
-					Services: []string{"service0"},
-					Methods:  []string{},
-					Constraints: []*rbac.AccessRule_Constraint{
-						{Key: "key", Values: []string{"value"}},
-						{Key: "key", Values: []string{"value"}},
-					},
-				},
-			}},
-			expectErrMsg: "at least 1 method must be specified for rule 1",
-		},
-		{
 			name: "no key in constraint",
 			in: &rbac.ServiceRole{Rules: []*rbac.AccessRule{
 				{
@@ -2972,7 +3116,7 @@ func TestValidateNetworkEndpointAddress(t *testing.T) {
 	}
 }
 
-func TestValidateRbacConfig(t *testing.T) {
+func TestValidateClusterRbacConfig(t *testing.T) {
 	cases := []struct {
 		caseName     string
 		name         string
@@ -2982,13 +3126,13 @@ func TestValidateRbacConfig(t *testing.T) {
 	}{
 		{
 			caseName:     "invalid proto",
-			expectErrMsg: "cannot cast to RbacConfig",
+			expectErrMsg: "cannot cast to ClusterRbacConfig",
 		},
 		{
 			caseName: "invalid name",
-			name:     "Rbac-config",
+			name:     "cluster-rbac-config",
 			in:       &rbac.RbacConfig{Mode: rbac.RbacConfig_ON_WITH_INCLUSION},
-			expectErrMsg: fmt.Sprintf("rbacConfig has invalid name(Rbac-config), name must be %s",
+			expectErrMsg: fmt.Sprintf("ClusterRbacConfig has invalid name(cluster-rbac-config), name must be %q",
 				DefaultRbacConfigName),
 		},
 		{
@@ -3010,13 +3154,63 @@ func TestValidateRbacConfig(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		err := ValidateRbacConfig(c.name, c.namespace, c.in)
+		err := ValidateClusterRbacConfig(c.name, c.namespace, c.in)
 		if err == nil {
 			if len(c.expectErrMsg) != 0 {
-				t.Errorf("ValidateRbacConfig(%v): got nil but want %q\n", c.caseName, c.expectErrMsg)
+				t.Errorf("ValidateClusterRbacConfig(%v): got nil but want %q\n", c.caseName, c.expectErrMsg)
 			}
 		} else if err.Error() != c.expectErrMsg {
-			t.Errorf("ValidateRbacConfig(%v): got %q but want %q\n", c.caseName, err.Error(), c.expectErrMsg)
+			t.Errorf("ValidateClusterRbacConfig(%v): got %q but want %q\n", c.caseName, err.Error(), c.expectErrMsg)
 		}
+	}
+}
+
+func TestValidateMixerService(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    *mccpb.IstioService
+		valid bool
+	}{
+		{
+			name: "no name and service",
+			in:   &mccpb.IstioService{},
+		},
+		{
+			name: "specify both name and service",
+			in:   &mccpb.IstioService{Service: "test-service-service", Name: "test-service-name"},
+		},
+		{
+			name: "specify both namespace and service",
+			in:   &mccpb.IstioService{Service: "test-service-service", Namespace: "test-service-namespace"},
+		},
+		{
+			name: "specify both domain and service",
+			in:   &mccpb.IstioService{Service: "test-service-service", Domain: "test-service-domain"},
+		},
+		{
+			name: "invalid name label",
+			in:   &mccpb.IstioService{Name: strings.Repeat("x", 64)},
+		},
+		{
+			name: "invalid namespace label",
+			in:   &mccpb.IstioService{Name: "test-service-name", Namespace: strings.Repeat("x", 64)},
+		},
+		{
+			name: "invalid domian or labels",
+			in:   &mccpb.IstioService{Name: "test-service-name", Domain: strings.Repeat("x", 256)},
+		},
+		{
+			name:  "valid",
+			in:    validService,
+			valid: true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ValidateMixerService(c.in); (got == nil) != c.valid {
+				t.Errorf("ValidateMixerService(%v): got(%v) != want(%v): %v", c.name, got == nil, c.valid, got)
+			}
+		})
 	}
 }

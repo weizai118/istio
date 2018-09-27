@@ -29,17 +29,19 @@ import (
 	"istio.io/istio/pkg/collateral"
 	"istio.io/istio/pkg/ctrlz"
 	"istio.io/istio/pkg/log"
+	"istio.io/istio/pkg/mcp/creds"
 	"istio.io/istio/pkg/version"
 )
 
 var (
 	httpPort       int
 	monitoringPort int
-	serverArgs     bootstrap.PilotArgs
+	serverArgs     = bootstrap.PilotArgs{
+		CtrlZOptions:         ctrlz.DefaultOptions(),
+		MCPCredentialOptions: creds.DefaultOptions(),
+	}
 
 	loggingOptions = log.DefaultOptions()
-
-	ctrlzOptions = ctrlz.DefaultOptions()
 
 	rootCmd = &cobra.Command{
 		Use:          "pilot-discovery",
@@ -51,6 +53,7 @@ var (
 	discoveryCmd = &cobra.Command{
 		Use:   "discovery",
 		Short: "Start Istio proxy discovery service.",
+		Args:  cobra.ExactArgs(0),
 		RunE: func(c *cobra.Command, args []string) error {
 			cmd.PrintFlags(c.Flags())
 			if err := log.Configure(loggingOptions); err != nil {
@@ -95,7 +98,7 @@ func init() {
 		"Cloud Foundry config file")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Config.ClusterRegistriesConfigmap, "clusterRegistriesConfigMap", "",
 		"ConfigMap map for clusters config store")
-	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Config.ClusterRegistriesNamespace, "clusterRegistriesNamespace", "",
+	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Config.ClusterRegistriesNamespace, "clusterRegistriesNamespace", metav1.NamespaceAll,
 		"Namespace for ConfigMap which stores clusters configs")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Config.KubeConfig, "kubeconfig", "",
 		"Use a Kubernetes configuration file instead of in-cluster configuration")
@@ -106,7 +109,16 @@ func init() {
 	discoveryCmd.PersistentFlags().StringSliceVar(&serverArgs.Plugins, "plugins", bootstrap.DefaultPlugins,
 		"comma separated list of networking plugins to enable")
 
+	// MCP client flags
+	discoveryCmd.PersistentFlags().StringSliceVar(&serverArgs.MCPServerAddrs, "mcpServerAddrs", []string{},
+		"comma separated list of MCP server addresses with "+
+			"mcp:// (insecure) or mcps:// (secure) schema, e.g. mcps://istio-galley.istio-system.svc:9901")
+	serverArgs.MCPCredentialOptions.AttachCobraFlags(discoveryCmd)
+
 	// Config Controller options
+	discoveryCmd.PersistentFlags().BoolVar(&serverArgs.Config.DisableInstallCRDs, "disable-install-crds", false,
+		"Disable discovery service from verifying the existence of CRDs at startup and then installing if not detected.  "+
+			"It is recommended to be disable for highly available setups.")
 	discoveryCmd.PersistentFlags().StringVar(&serverArgs.Config.FileDir, "configDir", "",
 		"Directory to watch for updates to config yaml files. If specified, the files will be used as the source of config, rather than a CRD client.")
 	discoveryCmd.PersistentFlags().StringVarP(&serverArgs.Config.ControllerOptions.WatchedNamespace, "appNamespace",
@@ -134,14 +146,13 @@ func init() {
 		"Enable profiling via web interface host:port/debug/pprof")
 	discoveryCmd.PersistentFlags().BoolVar(&serverArgs.DiscoveryOptions.EnableCaching, "discoveryCache", true,
 		"Enable caching discovery service responses")
-	// TODO (rshriram): Need v1/v2 endpoints and option to selectively
-	// enable webhook for specific xDS config (cds/lds/etc).
-	discoveryCmd.PersistentFlags().StringVar(&serverArgs.DiscoveryOptions.WebhookEndpoint, "webhookEndpoint", "",
-		"Webhook API endpoint (supports http://sockethost, and unix:///absolute/path/to/socket")
 
 	// Deprecated flags.
-	discoveryCmd.PersistentFlags().IntVar(&httpPort, "port", 8080,
-		"Discovery service port")
+	var dummy string
+	discoveryCmd.PersistentFlags().StringVar(&dummy, "webhookEndpoint", "",
+		"Webhook API endpoint (supports http://sockethost, and unix:///absolute/path/to/socket")
+	discoveryCmd.PersistentFlags().MarkDeprecated("webhookEndpoint", "Stop using, it will be remove in a future release")
+	discoveryCmd.PersistentFlags().IntVar(&httpPort, "port", 8080, "Discovery service port")
 	discoveryCmd.PersistentFlags().MarkDeprecated("port", "Use --httpAddr instead")
 	discoveryCmd.PersistentFlags().IntVar(&monitoringPort, "monitoringPort", 9093,
 		"HTTP port to use for the exposing pilot self-monitoring information")
@@ -151,8 +162,7 @@ func init() {
 	loggingOptions.AttachCobraFlags(rootCmd)
 
 	// Attach the Istio Ctrlz options to the command.
-	ctrlzOptions.AttachCobraFlags(rootCmd)
-	serverArgs.CtrlZOptions = ctrlzOptions
+	serverArgs.CtrlZOptions.AttachCobraFlags(rootCmd)
 
 	cmd.AddFlags(rootCmd)
 

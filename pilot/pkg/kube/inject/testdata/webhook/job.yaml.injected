@@ -28,25 +28,29 @@ spec:
         - --binaryPath
         - /usr/local/bin/envoy
         - --serviceCluster
-        - istio-proxy
+        - pi.default
         - --drainDuration
         - 2s
         - --parentShutdownDuration
         - 3s
         - --discoveryAddress
         - istio-pilot:15007
-        - --discoveryRefreshDelay
-        - 1s
         - --zipkinAddress
         - ""
         - --connectTimeout
         - 1s
-        - --statsdUdpAddress
-        - ""
         - --proxyAdminPort
         - "15000"
         - --controlPlaneAuthPolicy
         - NONE
+        - --statusPort
+        - "15020"
+        - --applicationPorts
+        - ""
+        ports:
+        - name: http-envoy-prom
+          containerPort: 15090
+          protocol: TCP
         env:
         - name: POD_NAME
           valueFrom:
@@ -69,6 +73,13 @@ spec:
         image: docker.io/istio/proxyv2:unittest
         imagePullPolicy: IfNotPresent
         name: istio-proxy
+        readinessProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /healthz/ready
+            port: 15020
+          initialDelaySeconds: 1
+          periodSeconds: 2
         resources:
           requests:
             cpu: 10m
@@ -97,7 +108,7 @@ spec:
         - -b
         - ""
         - -d
-        - ""
+        - "15020"
         image: docker.io/istio/proxy_init:unittest
         imagePullPolicy: IfNotPresent
         name: istio-init

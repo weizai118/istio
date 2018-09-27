@@ -31,15 +31,13 @@ spec:
         - --binaryPath
         - /usr/local/bin/envoy
         - --serviceCluster
-        - hello
+        - hello.default
         - --drainDuration
         - 2s
         - --parentShutdownDuration
         - 3s
         - --discoveryAddress
         - istio-pilot:15007
-        - --discoveryRefreshDelay
-        - 1s
         - --zipkinAddress
         - ""
         - --connectTimeout
@@ -50,6 +48,10 @@ spec:
         - "15000"
         - --controlPlaneAuthPolicy
         - NONE
+        - --statusPort
+        - "0"
+        - --applicationPorts
+        - "80"
         env:
         - name: POD_NAME
           valueFrom:

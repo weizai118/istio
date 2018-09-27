@@ -40,9 +40,6 @@ data:
     # Unix Domain Socket through which envoy communicates with NodeAgent SDS to get
     # key/cert for mTLS. Use secret-mount files instead of SDS if set to empty. 
     sdsUdsPath: ""
-    
-    # How frequently should Envoy fetch key/cert from NodeAgent.
-    sdsRefreshDelay: 15s
 
     #
     defaultConfig:
@@ -82,8 +79,16 @@ data:
       # for more details
       proxyAdminPort: 15000
       #
+      # Set concurrency to a specific number to control the number of Proxy worker threads.
+      # If set to 0 (default), then start worker thread for each CPU thread/core.
+      concurrency: {{ .Values.global.proxy.concurrency }}
+      #
       # Zipkin trace collector
+      {{- if .Values.global.tracer.zipkinAddress }}
+      zipkinAddress: {{ .Values.global.tracer.zipkinAddress }}
+      {{- else }}
       zipkinAddress: zipkin.{{ .Release.Namespace }}:9411
+      {{- end }}
 
     {{- if .Values.global.proxy.envoyStatsd.enabled }}
       #

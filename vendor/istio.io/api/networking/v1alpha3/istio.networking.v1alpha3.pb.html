@@ -2177,8 +2177,8 @@ spec:
 <td>
 <p>Number of errors before a host is ejected from the connection
 pool. Defaults to 5. When the upstream host is accessed over HTTP, a
-5xx return code qualifies as an error. When the upstream host is
-accessed over an opaque TCP connection, connect timeouts and
+502, 503 or 504 return code qualifies as an error. When the upstream host
+is accessed over an opaque TCP connection, connect timeouts and
 connection error/failure events qualify as an error.</p>
 
 </td>
@@ -3195,8 +3195,9 @@ with weights can be specified.</p>
 <td><code>string[]</code></td>
 <td>
 <p>REQUIRED. SNI (server name indicator) to match on. Wildcard prefixes
-can be used in the SNI value. E.g., *.com will match foo.example.com
-as well as example.com.</p>
+can be used in the SNI value, e.g., *.com will match foo.example.com
+as well as example.com. An SNI value must be a subset (i.e., fall
+within the domain) of the corresponding virtual serivce&rsquo;s hosts.</p>
 
 </td>
 </tr>

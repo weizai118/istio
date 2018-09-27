@@ -214,11 +214,9 @@ func DefaultProxyConfig() meshconfig.ProxyConfig {
 		ConfigPath:             ConfigPathDir,
 		BinaryPath:             BinaryPathFilename,
 		ServiceCluster:         ServiceClusterName,
-		AvailabilityZone:       "", //no service zone by default, i.e. AZ-aware routing is disabled
 		DrainDuration:          types.DurationProto(2 * time.Second),
 		ParentShutdownDuration: types.DurationProto(3 * time.Second),
 		DiscoveryAddress:       DiscoveryPlainAddress,
-		DiscoveryRefreshDelay:  types.DurationProto(1 * time.Second),
 		ZipkinAddress:          "",
 		ConnectTimeout:         types.DurationProto(1 * time.Second),
 		StatsdUdpAddress:       "",
@@ -234,8 +232,6 @@ func DefaultProxyConfig() meshconfig.ProxyConfig {
 func DefaultMeshConfig() meshconfig.MeshConfig {
 	config := DefaultProxyConfig()
 	return meshconfig.MeshConfig{
-		// TODO(mixeraddress is deprecated. Remove)
-		MixerAddress:          "",
 		MixerCheckServer:      "",
 		MixerReportServer:     "",
 		DisablePolicyChecks:   false,
@@ -243,12 +239,10 @@ func DefaultMeshConfig() meshconfig.MeshConfig {
 		ConnectTimeout:        types.DurationProto(1 * time.Second),
 		IngressClass:          "istio",
 		IngressControllerMode: meshconfig.MeshConfig_STRICT,
-		RdsRefreshDelay:       types.DurationProto(1 * time.Second),
 		EnableTracing:         true,
 		AccessLogFile:         "/dev/stdout",
 		DefaultConfig:         &config,
 		SdsUdsPath:            "",
-		SdsRefreshDelay:       types.DurationProto(15 * time.Second),
 	}
 }
 
@@ -276,14 +270,6 @@ func ApplyMeshConfigDefaults(yaml string) (*meshconfig.MeshConfig, error) {
 		if err := ApplyYAML(origProxyConfigYAML, out.DefaultConfig); err != nil {
 			return nil, multierror.Prefix(err, "failed to convert to proto.")
 		}
-	}
-
-	// Backward compat option: if mixer address is set but
-	// mixer_check_server and mixer_report_server are unset, copy the value
-	// into these two config vars.
-	if out.MixerAddress != "" && out.MixerCheckServer == "" && out.MixerReportServer == "" {
-		out.MixerCheckServer = out.MixerAddress
-		out.MixerReportServer = out.MixerAddress
 	}
 
 	if err := ValidateMeshConfig(&out); err != nil {

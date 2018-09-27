@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	ot "github.com/opentracing/opentracing-go"
 	oprometheus "github.com/prometheus/client_golang/prometheus"
@@ -81,6 +82,7 @@ type patchTable struct {
 	listen        listenFunc
 	configLog     func(options *log.Options) error
 	runtimeListen func(runtime *runtime.Runtime) error
+	remove        func(name string) error
 
 	// monitoring-related setup
 	newOpenCensusExporter   func() (view.Exporter, error)
@@ -100,6 +102,7 @@ func newPatchTable() *patchTable {
 		listen:        net.Listen,
 		configLog:     log.Configure,
 		runtimeListen: func(rt *runtime.Runtime) error { return rt.StartListening() },
+		remove:        os.Remove,
 		newOpenCensusExporter: func() (view.Exporter, error) {
 			return prometheus.NewExporter(prometheus.Options{Registry: oprometheus.DefaultRegisterer.(*oprometheus.Registry)})
 		},
@@ -149,21 +152,12 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 	}
 
 	// get the network stuff setup
-	network := "tcp"
-	address := fmt.Sprintf(":%d", a.APIPort)
-	if a.APIAddress != "" {
-		idx := strings.Index(a.APIAddress, "://")
-		if idx < 0 {
-			address = a.APIAddress
-		} else {
-			network = a.APIAddress[:idx]
-			address = a.APIAddress[idx+3:]
-		}
-	}
+	network, address := extractNetAddress(a.APIPort, a.APIAddress)
 
 	if network == "unix" {
 		// remove Unix socket before use.
-		if err = os.Remove(address); err != nil && !os.IsNotExist(err) {
+		if err = p.remove(address); err != nil && !os.IsNotExist(err) {
+			_ = s.Close()
 			// Anything other than "file not found" is an error.
 			return nil, fmt.Errorf("unable to remove unix://%s: %v", address, err)
 		}
@@ -201,14 +195,22 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 		templateMap[k] = &t
 	}
 
-	kinds := runtimeconfig.KindMap(adapterMap, templateMap)
+	var kinds map[string]proto.Message
+	if a.UseAdapterCRDs {
+		kinds = runtimeconfig.KindMap(adapterMap, templateMap)
+	} else {
+		kinds = runtimeconfig.KindMap(map[string]*adapter.Info{}, templateMap)
+	}
+
 	if err := st.Init(kinds); err != nil {
+		_ = s.Close()
 		return nil, fmt.Errorf("unable to initialize config store: %v", err)
 	}
 
 	// block wait for the config store to sync
 	log.Info("Awaiting for config store sync...")
 	if err := st.WaitForSynced(30 * time.Second); err != nil {
+		_ = s.Close()
 		return nil, err
 	}
 
@@ -232,12 +234,14 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 
 	exporter, err := p.newOpenCensusExporter()
 	if err != nil {
+		_ = s.Close()
 		return nil, fmt.Errorf("could not build opencensus exporter: %v", err)
 	}
 	view.RegisterExporter(exporter)
 
 	// Register the views to collect server request count.
 	if err := p.registerOpenCensusViews(ocgrpc.DefaultServerViews...); err != nil {
+		_ = s.Close()
 		return nil, fmt.Errorf("could not register default server views: %v", err)
 	}
 
@@ -268,6 +272,19 @@ func newServer(a *Args, p *patchTable) (*Server, error) {
 	s.controlZ, _ = ctrlz.Run(a.IntrospectionOptions, nil)
 
 	return s, nil
+}
+
+func extractNetAddress(apiPort uint16, apiAddress string) (string, string) {
+	if apiAddress != "" {
+		idx := strings.Index(apiAddress, "://")
+		if idx < 0 {
+			return "tcp", apiAddress
+		}
+
+		return apiAddress[:idx], apiAddress[idx+3:]
+	}
+
+	return "tcp", fmt.Sprintf(":%d", apiPort)
 }
 
 // Run enables Mixer to start receiving gRPC requests on its main API port.

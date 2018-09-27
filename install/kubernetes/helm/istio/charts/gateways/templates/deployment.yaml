@@ -19,13 +19,34 @@ spec:
         {{- range $key, $val := $spec.labels }}
         {{ $key }}: {{ $val }}
         {{- end }}
+        {{- template "common_template_labels" $ }}
       annotations:
         sidecar.istio.io/inject: "false"
         scheduler.alpha.kubernetes.io/critical-pod: ""
+{{- if $spec.podAnnotations }}
+{{ toYaml $spec.podAnnotations | indent 8 }}
+{{ end }}
     spec:
       serviceAccountName: {{ $key }}-service-account
 {{- if $.Values.global.priorityClassName }}
       priorityClassName: "{{ $.Values.global.priorityClassName }}"
+{{- end }}
+{{- if $.Values.global.proxy.enableCoreDump }}
+      initContainers:
+        - name: enable-core-dump
+{{- if contains "/" $.Values.global.proxy_init.image }}
+          image: "{{ $.Values.global.proxy_init.image }}"
+{{- else }}
+          image: "{{ $.Values.global.hub }}/{{ $.Values.global.proxy_init.image }}:{{ $.Values.global.tag }}"
+{{- end }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+          args:
+            - -c
+            - sysctl -w kernel.core_pattern=/var/lib/istio/core.proxy && ulimit -c unlimited
+          securityContext:
+            privileged: true
 {{- end }}
       containers:
         - name: istio-proxy
@@ -35,13 +56,16 @@ spec:
             {{- range $key, $val := $spec.ports }}
             - containerPort: {{ $val.port }}
             {{- end }}
+{{ if ne $.Values.global.proxy.stats.prometheusPort 0. }}
+            - containerPort: {{ $.Values.global.proxy.stats.prometheusPort }}
+              protocol: TCP
+              name: http-envoy-prom
+{{ end }}
           args:
           - proxy
           - router
           - --log_output_level
           - 'info'
-          - --discoveryRefreshDelay
-          - '1s' #discoveryRefreshDelay
           - --drainDuration
           - '45s' #drainDuration
           - --parentShutdownDuration
@@ -51,7 +75,9 @@ spec:
           - --serviceCluster
           - {{ $key }}
           - --zipkinAddress
-        {{- if $.Values.global.istioNamespace }}
+        {{- if $.Values.global.tracer.zipkinAddress }}
+          - {{ $.Values.global.tracer.zipkinAddress }}
+        {{- else if $.Values.global.istioNamespace }}
           - zipkin.{{ $.Values.global.istioNamespace }}:9411
         {{- else }}
           - zipkin:9411
